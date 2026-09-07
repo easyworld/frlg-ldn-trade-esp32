@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+.vs/
+/host/desktop/Frlg.Trade.Desktop.csproj.user
+**/__pycache__/
+*.pyc
+/local/
+/app/
+/firmware/build*/
+/firmware/sdkconfig*
+*.log
+prod.keys

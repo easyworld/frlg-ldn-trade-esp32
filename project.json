@@ -1,0 +1,10 @@
+{
+  "name": "frlg-ldn-trade-esp32",
+  "schema": 2,
+  "firmware": "firmware",
+  "core": "host/core",
+  "runtime": "dotnet10",
+  "serialProtocol": 1,
+  "desktop": "host/desktop",
+  "pkhexCore": "26.8.26"
+}

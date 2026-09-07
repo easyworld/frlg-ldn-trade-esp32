@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/host/" />
+  <Project Path="host/core/Frlg.Trade.Core.csproj" />
+  <Project Path="host/tests/Frlg.Trade.Tests.csproj" />
+  <Folder Name="/host/desktop/">
+    <Project Path="host/desktop/Frlg.Trade.Desktop.csproj" />
+  </Folder>
+</Solution>

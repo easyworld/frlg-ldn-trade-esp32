@@ -39,8 +39,8 @@ static esp_netif_t *s_station_netif;
 #error "The private CCMP probe is ABI-pinned to ESP-IDF v6.1"
 #endif
 
-#if !CONFIG_IDF_TARGET_ESP32C3 && !CONFIG_IDF_TARGET_ESP32C6
-#error "The private CCMP probe has only been audited for ESP32-C3 and ESP32-C6"
+#if !CONFIG_IDF_TARGET_ESP32C3 && !CONFIG_IDF_TARGET_ESP32C6 && !CONFIG_IDF_TARGET_ESP32S3
+#error "The private CCMP bridge supports ESP32-C3, ESP32-C6 and ESP32-S3"
 #endif
 #endif
 

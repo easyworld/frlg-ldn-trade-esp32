@@ -40,7 +40,7 @@ if ($LASTEXITCODE -ne 0 -or ($submodules | Where-Object { $_ -match '^[+-U]' }))
     throw 'SDK submodules are missing or differ from the pinned release.'
 }
 if (-not $UseGitHub) { $env:IDF_GITHUB_ASSETS = 'dl.espressif.cn/github_assets' }
-& python (Join-Path $sdk 'tools/idf_tools.py') --non-interactive --idf-path $sdk install --targets=esp32c3,esp32c6
+& python (Join-Path $sdk 'tools/idf_tools.py') --non-interactive --idf-path $sdk install --targets=esp32c3,esp32c6,esp32s3
 if ($LASTEXITCODE -ne 0) { throw 'ESP-IDF tool installation failed.' }
 & python (Join-Path $sdk 'tools/idf_tools.py') --non-interactive --idf-path $sdk install-python-env --features=core
 if ($LASTEXITCODE -ne 0) { throw 'ESP-IDF Python environment installation failed.' }

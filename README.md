@@ -1,7 +1,7 @@
 # FRLG 交换中心
 
 本项目基于 [tornadus/frlg-ldn-trade](https://github.com/tornadus/frlg-ldn-trade) 移植，
-提供 Windows C# 图形上位机与 ESP32-C6 串口无线桥接固件。
+提供 Windows C# 图形上位机与 ESP32-C3 / ESP32-C6 / ESP32-S3 串口无线桥接固件。
 
 ![screenshot](./screenshot.png)
 
@@ -12,7 +12,7 @@ PKHeX.Core 负责 PK3 展示与编辑。固件负责无线关联、会话密钥�
 
 ```mermaid
 flowchart LR
-    Switch["Switch（游戏房间）"] <-->|LDN 无线通信| ESP32["ESP32-C6（无线桥接固件）"]
+    Switch["Switch（游戏房间）"] <-->|LDN 无线通信| ESP32["ESP32-C3 / C6 / S3（无线桥接固件）"]
     ESP32 <-->|USB 串口| PC["PC 上位机（协议处理与宝可梦交换）"]
 ```
 
@@ -23,7 +23,7 @@ flowchart LR
 | `host/core` | 纯 C# LDN、串口协议、Pia、RFU、交易状态机 |
 | `host/desktop` | C# WPF 界面、PKHeX 编辑、队伍与设置保存 |
 | `host/tests` | .NET 协议测试、离线回放、实板诊断入口 |
-| `firmware/main` | ESP32-C6 参考固件，固定 ESP-IDF v6.1 |
+| `firmware/main` | ESP32-C3 / C6 / S3 固件，固定 ESP-IDF v6.1 |
 | `firmware/tools` | SDK 环境、编译、烧写、私有 API 链接审计 |
 | `assets/party` | 默认 MEWTWO、DEOXYS；程序不修改这些资源 |
 | `assets/sprites` | 本地宝可梦 PNG 图片，1–386 |
@@ -92,6 +92,26 @@ Switch 创建 FireRed Leader 房间后点击连接；进入房间、选择和确
 
 默认是 C6、UART、16MB、动态串口固件。烧写前关闭上位机连接和其他串口监视器。
 完整交易桥接使用 `-Mode serial`。
+ESP32-C3 和 ESP32-S3 使用同一套源码和上位机串口协议，均默认 4MB Flash：
+
+```powershell
+.\firmware\tools\probe.ps1 -Action build -Target esp32c3
+.\firmware\tools\probe.ps1 -Action flash -Target esp32c3 -Port COM5
+.\firmware\tools\probe.ps1 -Action build -Target esp32s3
+.\firmware\tools\probe.ps1 -Action flash -Target esp32s3 -Port COM5
+```
+
+串口号替换为实际设备端口，Flash 容量可用 `-FlashSize 4MB`、`8MB` 或 `16MB` 指定。
+串口桥接通过板载 USB 转串口或外接 3.3V USB 串口适配器连接电脑：
+
+| 芯片 | UART0 TX | UART0 RX | 默认构建目录 |
+| --- | --- | --- | --- |
+| ESP32-C3 | GPIO21 | GPIO20 | `firmware/build-c3-serial-uart4-1/` |
+| ESP32-S3 | GPIO43 | GPIO44 | `firmware/build-s3-serial-uart4-1/` |
+
+外接时交叉连接 TX/RX 并共地；原生 USB Serial/JTAG 接口目前仅用于诊断配置，不能代替 UART 桥接。
+C3/S3 不启用 C6 专用原始帧和硬件发送跟踪诊断，无线关联、认证和完整交易仍需实板验证。
+
 `public`、`discovery`、`send` 保留作无线诊断，不提供完整交易桥接。
 
 ## 验证与移植

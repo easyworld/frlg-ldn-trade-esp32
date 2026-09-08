@@ -2,16 +2,20 @@
 param(
     [ValidateSet('doctor', 'build', 'matrix', 'menuconfig', 'identify', 'flash', 'monitor', 'flash-monitor')]
     [string]$Action = 'doctor',
-    [ValidateSet('esp32c3', 'esp32c6')][string]$Target = 'esp32c6',
+    [ValidateSet('esp32c3', 'esp32c6', 'esp32s3')][string]$Target = 'esp32c6',
     [ValidateSet('public', 'discovery', 'serial', 'send')][string]$Mode = 'serial',
     [ValidateSet('usb', 'uart')][string]$Console = 'uart',
-    [ValidateSet('4MB', '16MB')][string]$FlashSize = '16MB',
+    [ValidateSet('4MB', '8MB', '16MB')][string]$FlashSize,
     [ValidateRange(1, 14)][int]$Channel = 1,
     [string]$Port,
     [ValidateRange(9600, 2000000)][int]$Baud = 460800,
     [string]$SdkPath = (Join-Path $env:USERPROFILE 'esp/esp-idf-v6.1')
 )
 $ErrorActionPreference = 'Stop'
+if (-not $FlashSize) { $FlashSize = if ($Target -eq 'esp32c6') { '16MB' } else { '4MB' } }
+if ($Action -notin @('doctor', 'matrix', 'identify') -and $Mode -eq 'serial' -and $Console -ne 'uart') {
+    throw 'Serial bridge requires -Console uart.'
+}
 . (Join-Path $PSScriptRoot 'environment.ps1') -SdkPath $SdkPath
 $project = Split-Path $PSScriptRoot -Parent
 
@@ -23,7 +27,8 @@ function Invoke-ProbePython {
 
 if ($Action -eq 'doctor') {
     Invoke-ProbePython -Arguments @($script:ProbeIdf, '--version')
-    & riscv32-esp-elf-gcc --version
+    $compiler = if ($Target -eq 'esp32s3') { 'xtensa-esp32s3-elf-gcc' } else { 'riscv32-esp-elf-gcc' }
+    & $compiler --version
     if ($LASTEXITCODE -ne 0) { throw 'Compiler is unavailable.' }
     & cmake --version
     if ($LASTEXITCODE -ne 0) { throw 'CMake is unavailable.' }
@@ -44,15 +49,13 @@ if ($Action -eq 'identify') {
     return
 }
 if ($Action -eq 'matrix') {
-    foreach ($chip in 'esp32c3', 'esp32c6') {
+    foreach ($chip in 'esp32c3', 'esp32c6', 'esp32s3') {
         $size = '4MB'
         if ($chip -eq 'esp32c6') { $size = '16MB' }
         foreach ($variant in 'public', 'discovery', 'send') {
             & $PSCommandPath -Action build -Target $chip -Mode $variant -Console $Console -FlashSize $size -Channel $Channel -SdkPath $SdkPath
         }
-        if ($chip -eq 'esp32c6') {
-            & $PSCommandPath -Action build -Target $chip -Mode serial -Console uart -FlashSize $size -Channel $Channel -SdkPath $SdkPath
-        }
+        & $PSCommandPath -Action build -Target $chip -Mode serial -Console uart -FlashSize $size -Channel $Channel -SdkPath $SdkPath
     }
     return
 }
@@ -70,10 +73,11 @@ $defaults = @(
 if ($Console -eq 'usb') { $defaults += 'CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y' }
 else { $defaults += 'CONFIG_ESP_CONSOLE_UART_DEFAULT=y' }
 if ($Mode -eq 'serial') {
-    if ($Target -ne 'esp32c6' -or $Console -ne 'uart') { throw 'Serial bridge currently requires esp32c6 and uart.' }
     $defaults += @('CONFIG_LDN_PROBE_PRIVATE_JOIN=y', 'CONFIG_LDN_PROBE_EXPORT_ADVERTISEMENTS=y',
-        'CONFIG_LDN_PROBE_CONTROL_PORT=y', 'CONFIG_LDN_PROBE_PRIVATE_RAW_TX=y', 'CONFIG_LDN_PROBE_LEGACY_PHY=y',
+        'CONFIG_LDN_PROBE_CONTROL_PORT=y', 'CONFIG_LDN_PROBE_LEGACY_PHY=y',
         'CONFIG_LWIP_DHCPS_STATIC_ENTRIES=y')
+    # Hardware tracing and the optional software-CCMP raw adapter use C6-only driver layouts.
+    if ($Target -eq 'esp32c6') { $defaults += 'CONFIG_LDN_PROBE_PRIVATE_RAW_TX=y' }
 }
 if ($Mode -eq 'send') { $defaults += 'CONFIG_LDN_PROBE_SEND_TEST_ACTION=y' }
 if ($Mode -eq 'discovery') { $defaults += 'CONFIG_LDN_PROBE_EXPORT_ADVERTISEMENTS=y' }

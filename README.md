@@ -5,6 +5,8 @@
 
 ![screenshot](./screenshot.png)
 
+[查看 ESP32-C6 演示视频（MP4，720p，约 5.3 MiB）](./assets/videos/esp32-c6-demo.mp4)
+
 C# 直接通过串口完成设备识别、房间扫描、LDN 认证、Pia/RFU 通信和交易；
 PKHeX.Core 负责 PK3 展示与编辑。固件负责无线关联、会话密钥安装和数据收发。
 房间配置和宝可梦数据在连接时通过串口下发。

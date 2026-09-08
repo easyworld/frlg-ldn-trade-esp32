@@ -1,0 +1,18 @@
+menu "ESP32-C3 LDN bridge"
+config LDN_PROBE_CHANNEL
+    int "Initial 2.4 GHz channel"
+    range 1 11
+    default 1
+config LDN_PROBE_PRIVATE_JOIN
+    bool
+    default y
+config LDN_PROBE_EXPORT_ADVERTISEMENTS
+    bool
+    default y
+config LDN_PROBE_CONTROL_PORT
+    bool
+    default y
+config LDN_PROBE_LEGACY_PHY
+    bool "Use 802.11b/g for LDN compatibility"
+    default y
+endmenu

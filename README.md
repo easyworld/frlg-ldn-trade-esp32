@@ -1,7 +1,7 @@
 # FRLG 交换中心
 
 本项目基于 [tornadus/frlg-ldn-trade](https://github.com/tornadus/frlg-ldn-trade) 移植，
-提供 Windows C# 图形上位机与 ESP32-C6 串口无线桥接固件，仅支持 ESP32-C6。
+提供 Windows C# 图形上位机与 ESP32-C6、ESP32-C3 无线桥接固件，两个芯片分别维护独立工程。
 
 ![screenshot](./screenshot.png)
 
@@ -14,7 +14,7 @@ PKHeX.Core 负责 PK3 展示与编辑。固件负责无线关联、会话密钥�
 
 ```mermaid
 flowchart LR
-    Switch["Switch（游戏房间）"] <-->|LDN 无线通信| ESP32["ESP32-C6（无线桥接固件）"]
+    Switch["Switch（游戏房间）"] <-->|LDN 无线通信| ESP32["ESP32-C6 / C3（无线桥接固件）"]
     ESP32 <-->|USB 串口| PC["PC 上位机（协议处理与宝可梦交换）"]
 ```
 
@@ -25,8 +25,9 @@ flowchart LR
 | `host/core` | 纯 C# LDN、串口协议、Pia、RFU、交易状态机 |
 | `host/desktop` | C# WPF 界面、PKHeX 编辑、队伍与设置保存 |
 | `host/tests` | .NET 协议测试、离线回放、实板诊断入口 |
-| `firmware/main` | ESP32-C6 固件，固定 ESP-IDF v6.1 |
-| `firmware/tools` | SDK 环境、编译、烧写、私有 API 链接审计 |
+| `firmware/esp32-c6` | [ESP32-C6 固件](firmware/esp32-c6/README.md)，使用 UART，含 C6 专用构建和审计工具 |
+| `firmware/esp32-c3` | [ESP32-C3 独立实验固件](firmware/esp32-c3/README.md)，使用原生 USB Serial/JTAG |
+| `firmware/tools` | 两种芯片共用的 SDK 安装、环境激活与 Windows 无线诊断工具 |
 | `assets/party` | 默认 MEWTWO、DEOXYS；程序不修改这些资源 |
 | `assets/sprites` | 本地宝可梦 PNG 图片，1–386 |
 | `app` | win-x64、依赖框架的单文件 EXE |
@@ -85,11 +86,11 @@ Switch 创建 FireRed Leader 房间后点击连接；进入房间、选择和确
 依赖框架（不附带 .NET 运行时）、单文件，输出为 `app/Frlg.Trade.Desktop.exe`，不另附 DLL 或 PDB。
 
 使用以下脚本构建与烧写固件需要完整 ESP-IDF 工具链。
-可用 `firmware/tools/setup.ps1` 安装。
+可用 `firmware/tools/setup.ps1` 安装 C6、C3 所需工具链。
 
 固件固定使用 **ESP-IDF v6.1，提交 `fff9895c82d744c7237be8847347bdd1b07c6643`**。
-LDN 桥接依赖公开 Wi-Fi API 之外的内部实现：私有 WPA 回调表与密钥安装接口、
-C6 软件 CCMP 原始帧发送适配，以及发送诊断使用的驱动描述符和 DMA 结构偏移。
+两种芯片的 LDN 桥接均使用私有 WPA 回调表与密钥安装接口。
+C6 工程还包含软件 CCMP 原始帧发送适配，以及发送诊断使用的驱动描述符和 DMA 结构偏移。
 这些私有 ABI、符号和内存布局不保证跨 SDK 版本兼容，因此不能直接更换 SDK。
 
 安装和构建脚本会校验 SDK 提交及相关归档的 SHA256；开启私有 raw TX 时，
@@ -99,19 +100,31 @@ C6 软件 CCMP 原始帧发送适配，以及发送诊断使用的驱动描述�
 升级 ESP-IDF 时，需要重新核对私有接口、回调表布局、库符号和结构偏移，
 通过链接审计、空口抓包与实板入网及完整交易验证后，再更新版本和哈希限制。
 
+ESP32-C6：
+
 ```powershell
-.\firmware\tools\probe.ps1 -Action build
-.\firmware\tools\probe.ps1 -Action flash -Port COM6
+.\firmware\esp32-c6\tools\probe.ps1 -Action build
+.\firmware\esp32-c6\tools\probe.ps1 -Action flash -Port COM6
 ```
 
-默认是 C6、UART、16MB、动态串口固件。烧写前关闭上位机连接和其他串口监视器。
+该脚本默认是 C6、UART、16MB、动态串口固件。烧写前关闭上位机连接和其他串口监视器。
 完整交易桥接使用 `-Mode serial`。
 串口号替换为实际设备端口，Flash 容量可用 `-FlashSize 4MB`、`8MB` 或 `16MB` 指定。
 串口桥接通过板载 USB 转串口或外接 3.3V USB 串口适配器连接电脑：
 
-外接时交叉连接 TX/RX 并共地；原生 USB Serial/JTAG 接口目前仅用于诊断配置，不能代替 UART 桥接。
+外接时交叉连接 TX/RX 并共地；C6 的原生 USB Serial/JTAG 接口仅用于诊断配置，不能代替该工程的 UART 桥接。
 
 `public`、`discovery`、`send` 保留作无线诊断，不提供完整交易桥接。
+
+ESP32-C3：
+
+```powershell
+.\firmware\esp32-c3\tools\probe.ps1 -Action build
+.\firmware\esp32-c3\tools\probe.ps1 -Action flash -Port COM5
+```
+
+C3 默认 4 MB Flash，通过原生 USB Serial/JTAG 连接电脑，详情见 [C3 工程说明](firmware/esp32-c3/README.md)。
+两种芯片的构建产物分别保存在各自工程的 `build*` 目录内。
 
 ## 验证与移植
 
@@ -126,7 +139,7 @@ dotnet run --project host/tests/Frlg.Trade.Tests.csproj -c Release -- --device C
 不存在时明确报告跳过。
 WPF 自检会在 EXE 同目录生成 `local/ui-checks` 渲染图，测试结束后恢复真实队伍与设置。
 
-已完成两笔真实交易，并验证可连接新建的不同信道房间。
+C6 已完成两笔真实交易，并验证可连接新建的不同信道房间；C3 已完成实际进房及一次完整交易验证。
 第三方设备实现请参考 [串口通信协议](docs/SERIAL_PROTOCOL.md)。
 
 ## 许可与数据

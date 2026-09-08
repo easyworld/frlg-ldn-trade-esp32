@@ -15,7 +15,7 @@ $ErrorActionPreference = 'Stop'
 if ($Action -notin @('doctor', 'matrix', 'identify') -and $Mode -eq 'serial' -and $Console -ne 'uart') {
     throw 'Serial bridge requires -Console uart.'
 }
-. (Join-Path $PSScriptRoot 'environment.ps1') -SdkPath $SdkPath
+. (Join-Path $PSScriptRoot '../../tools/environment.ps1') -SdkPath $SdkPath
 $project = Split-Path $PSScriptRoot -Parent
 
 function Invoke-ProbePython {

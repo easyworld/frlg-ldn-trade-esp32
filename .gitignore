@@ -6,7 +6,5 @@
 *.pyc
 /local/
 /app/
-/firmware/build*/
-/firmware/sdkconfig*
 *.log
 prod.keys

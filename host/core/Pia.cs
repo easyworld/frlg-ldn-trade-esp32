@@ -16,6 +16,7 @@ public sealed class ReliableLink
     private readonly HashSet<int> outOfOrder = [];
     private readonly Queue<double> samples = [];
     private int gap = -1, gapCount;
+    private bool receiveStarted;
     public int SendLow => Pending.Count == 0 ? Next : Low;
     public bool HasGap => outOfOrder.Count != 0;
     public void AddRtt(double ms) { if (ms >= 0) { samples.Enqueue(ms); while (samples.Count > 7) samples.Dequeue(); } }
@@ -57,8 +58,15 @@ public sealed class ReliableLink
         }
         return result;
     }
-    public void Receive(int seq)
+    public void Receive(int seq, int? advertisedLow = null)
     {
+        // Each peer chooses its own starting sequence. Use its send-window base,
+        // not the first packet's sequence, so an out-of-order arrival retains gaps.
+        if (!receiveStarted)
+        {
+            if (advertisedLow.HasValue) ReceiveNext = advertisedLow.Value;
+            receiveStarted = true;
+        }
         if (seq == ReceiveNext) { ReceiveNext = (ReceiveNext + 1) & 65535; while (outOfOrder.Remove(ReceiveNext)) ReceiveNext = (ReceiveNext + 1) & 65535; }
         else if (Bin.Less(ReceiveNext, seq) && ((seq - ReceiveNext) & 65535) < 4096) outOfOrder.Add(seq);
     }

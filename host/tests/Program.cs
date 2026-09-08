@@ -64,6 +64,19 @@ receiver.Receive(65534); receiver.Receive(65535);
 Check(receiver.ReceiveNext == 1 && !receiver.HasGap, "Contiguous receive catches up across wrap");
 sender.Acknowledge(receiver.Ack(), 20);
 Check(sender.Pending.Count == 0 && sender.SendLow == 1, "Cumulative ACK drains send window");
+var shifted = new ReliableLink();
+shifted.Receive(0x12, 0x11);
+Check(shifted.ReceiveNext == 0x11 && shifted.HasGap, "Peer send-window base preserves missing first packet");
+shifted.Receive(0x11, 0x11);
+Check(shifted.ReceiveNext == 0x13 && !shifted.HasGap && Bin.B16(shifted.Ack(), 2) == 0x13, "Non-default peer sequence advances cumulative ACK");
+shifted.Receive(0x11, 0x11);
+shifted.Receive(0x15, 0x15);
+Check(shifted.ReceiveNext == 0x13 && shifted.HasGap, "Later window bases and duplicates cannot reset receive state");
+shifted.Receive(0x13, 0x13); shifted.Receive(0x14, 0x14);
+Check(shifted.ReceiveNext == 0x16 && !shifted.HasGap, "Missing packets still close later receive gaps");
+var shiftedWrap = new ReliableLink();
+shiftedWrap.Receive(0, 65535); shiftedWrap.Receive(65535, 65535);
+Check(shiftedWrap.ReceiveNext == 1 && !shiftedWrap.HasGap, "Peer-selected receive base wraps correctly");
 sender.Queue([2], 7, 100);
 Check(sender.Retransmit(100 + sender.Rto - 1, 1).Count == 0, "No premature retransmit");
 Check(sender.Retransmit(100 + sender.Rto + 1, 1).Count == 1, "RTO recovers unacknowledged packet");
@@ -119,6 +132,19 @@ try
     var party = new byte[]?[] { File.ReadAllBytes(Path.Combine(root, "assets/party/mewtwo.pk3")), File.ReadAllBytes(Path.Combine(root, "assets/party/deoxys.pk3")), null, null, null, null };
     for (int i = 0; i < 2; i++) Equal(TradeEngine.ToWire(party[i]!), Bin.Hex(v.GetProperty("party")[i].GetString()!), "PK3 wire encoding fixture");
     using var crypto = new PiaCrypto(Enumerable.Range(0, 16).Select(i => (byte)i).ToArray());
+    using (var sim = new Simulator(Enumerable.Range(0, 16).Select(i => (byte)i).ToArray(),
+        Bin.Hex("020000000002"), Bin.Hex("020000000001"), "169.254.1.2", "169.254.1.1", new TradeEngine(party, 1), (_, _) => { }))
+    {
+        var peer = new ReliableLink { Next = 0x11, Low = 0x11 };
+        var first = peer.Queue([0, 0], 15, 0);
+        var message = PiaCrypto.Message(new(10, peer.Wrap(first)));
+        var datagram = crypto.Encrypt(message, "169.254.1.1", 0xc493, 0x7620, 1, 1, 0, 0);
+        sim.Receive(datagram, "169.254.1.1");
+        Check(sim.ReceivedPackets == 1 && sim.Reliable.ReceiveNext == 0x12 && !sim.Reliable.HasGap,
+            "Authenticated Pia packet initializes peer sequence instead of waiting for fff0");
+        sim.Receive(datagram, "169.254.1.1");
+        Check(sim.Reliable.ReceiveNext == 0x12, "Retransmitted opening packet does not reset peer sequence");
+    }
     foreach (var row in v.GetProperty("pia").EnumerateArray())
     {
         var plain = Bin.Hex(row.GetProperty("plain").GetString()!); var encrypted = Bin.Hex(row.GetProperty("encrypted").GetString()!);

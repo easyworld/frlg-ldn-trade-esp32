@@ -1,8 +1,9 @@
 # FRLG Serial Bridge Protocol v1
 
 本规范定义 C# 上位机与无线桥接设备之间的协议。设备型号不参与兼容性判断。
-版本 1 的参考实现位于 `firmware/main/ldn_wire.c`、`ldn_control.c`、`ldn_udp.c`；
-上位机实现位于 `host/core/SerialProtocol.cs`、`TradeSession.cs`。
+版本 1 的参考实现分别位于 `firmware/esp32-c6/main/` 和 `firmware/esp32-c3/main/`，
+对应 `ldn_wire.c`、`ldn_control.c`、`ldn_udp.c`；
+上位机实现位于 `host/core/SerialProtocol.cs`、`host/core/TradeSession.cs`。本文路径均相对于仓库根目录。
 
 ## 职责与移植要求
 
@@ -23,7 +24,8 @@
 
 ## 串口与握手
 
-8 数据位、无校验、1 停止位，无硬件流控。上电默认 115200 baud，运行时使用 921600。
+C6 UART 使用 8 数据位、无校验、1 停止位，无硬件流控。上电默认 115200 baud，运行时使用 921600。
+C3 使用原生 USB Serial/JTAG，兼容相同的波特率命令，但波特率设置不改变 USB 的物理传输速率。
 打开串口时不主动切换 DTR/RTS，不要求芯片专用的复位序列。
 
 设备刚启动时可能有普通启动日志。上位机发送 ASCII `\nLDN_BINARY\n`，再发送一个 0x00，
@@ -135,7 +137,8 @@ SSID 参数是 LDN 的 16 字节标识的十六进制字符串。无线 SSID 使
 v1 不使用逐字节流控或串口级 UDP 重传；可靠性由 Pia selective-repeat 层处理。
 参考上位机可靠发送窗口最多 6 帧，按约 59.727Hz 驱动，批量发送最多 9 条 Pia message，
 K ACK 每步最多 3 个且未确认的 K 最多 3 个，新 T 受主机轮询 credit 限制。
-参考固件 UART RX 缓冲 32768 字节，TX 缓冲 4096 字节，每轮最多上报 2 个 UDP 包；
+C6 UART RX 缓冲 32768 字节，TX 缓冲 4096 字节；C3 USB RX 缓冲 32768 字节，TX 缓冲 8192 字节。
+两种参考固件每轮最多上报 2 个 UDP 包；
 其他设备需满足等价吞吐和缓存，不能静默丢弃已经确认接收的控制命令。
 
 单个损坏帧丢弃后继续同步并计数；队列溢出、串口拔出、CRC 错误导致请求超时、

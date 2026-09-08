@@ -58,7 +58,7 @@ public sealed class Simulator : IDisposable
                 seenOrder.Enqueue(seq); while (seenOrder.Count > 4096) seen.Remove(seenOrder.Dequeue());
                 if (inner.Length >= 4 && inner[0] == 0x57) FeedGba(inner);
             }
-            Reliable.Receive(seq);
+            Reliable.Receive(seq, Bin.B16(p, 5));
         }
         ReceivedPackets++;
     }

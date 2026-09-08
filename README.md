@@ -5,6 +5,8 @@
 
 ![screenshot](./screenshot.png)
 
+https://github.com/user-attachments/assets/484677c5-2db5-4e83-a864-ac67cbc7ce3b
+
 C# 直接通过串口完成设备识别、房间扫描、LDN 认证、Pia/RFU 通信和交易；
 PKHeX.Core 负责 PK3 展示与编辑。固件负责无线关联、会话密钥安装和数据收发。
 房间配置和宝可梦数据在连接时通过串口下发。

@@ -23,6 +23,22 @@ Flash 容量可通过 `-FlashSize 4MB`、`8MB` 或 `16MB` 指定。
 默认配置的应用固件为 `build-c6-serial-uart16-1/ldn_wifi_probe.bin`；
 完整烧录文件和地址见同目录的 `flash_args`。
 
+## 状态指示灯
+
+板载 WS2812 RGB 灯（GPIO8）以呼吸方式显示当前状态，颜色和快慢随状态变化：
+
+| 颜色 | 状态 |
+| --- | --- |
+| 白 | 启动中 |
+| 蓝（慢） | 待机，等待上位机下发房间配置 |
+| 橙（快） | 正在加入房间 |
+| 绿 | 房间已认证，可以交易 |
+| 红（快） | 加入失败（关联超时或密钥校验未通过），约 3 秒后自动回到待机 |
+
+灯的驱动用官方 `espressif/led_strip` 组件，首次编译会自动联网拉取。
+可在 menuconfig 中关闭或修改 `LDN_PROBE_STATUS_LED` / `LDN_PROBE_STATUS_LED_GPIO`；
+若灯初始化失败，固件会跳过指示灯继续正常工作。
+
 ## 通信与调试
 
 完整交易桥接使用 `-Mode serial -Console uart`，通过板载 USB 转串口或外接

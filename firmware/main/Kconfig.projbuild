@@ -5,8 +5,7 @@ config LDN_PROBE_CHANNEL
     range 1 14
     default 1
     help
-        Channel used by the Switch LDN session. ESP32-C3, ESP32-C6 and ESP32-S3
-        only support 2.4 GHz.
+        Channel used by the Switch LDN session. ESP32-C6 only supports 2.4 GHz.
 
 config LDN_PROBE_SEND_TEST_ACTION
     bool "Send one harmless vendor action frame"
@@ -29,7 +28,7 @@ config LDN_PROBE_PRIVATE_JOIN
     help
         Replaces selected internal WPA callbacks, installs a pre-derived LDN
         CCMP key after association, and calls esp_wifi_auth_done_internal().
-        The serial bridge uses ESP-IDF v6.1 on ESP32-C3/C6/S3 with UART.
+        The serial bridge uses ESP-IDF v6.1 on ESP32-C6 with UART.
         Configure rooms at runtime with LDN_CONFIG; no build-time keys.
 
 if LDN_PROBE_PRIVATE_JOIN

@@ -28,6 +28,10 @@
 static esp_netif_t *s_station_netif;
 #endif
 
+#if !CONFIG_IDF_TARGET_ESP32C6
+#error "The LDN firmware supports only ESP32-C6"
+#endif
+
 #if CONFIG_LDN_PROBE_PRIVATE_JOIN
 #include "ldn_private_wifi.h"
 
@@ -39,9 +43,6 @@ static esp_netif_t *s_station_netif;
 #error "The private CCMP probe is ABI-pinned to ESP-IDF v6.1"
 #endif
 
-#if !CONFIG_IDF_TARGET_ESP32C3 && !CONFIG_IDF_TARGET_ESP32C6 && !CONFIG_IDF_TARGET_ESP32S3
-#error "The private CCMP bridge supports ESP32-C3, ESP32-C6 and ESP32-S3"
-#endif
 #endif
 
 #define MACSTR "%02x:%02x:%02x:%02x:%02x:%02x"

@@ -1,7 +1,7 @@
 idf_component_register(
-    SRCS "ldn_probe.c" "ldn_control.c" "ldn_private_raw.c" "ldn_tx_trace.c" "ldn_udp.c" "ldn_wire.c"
+    SRCS "ldn_probe.c" "ldn_led.c" "ldn_control.c" "ldn_private_raw.c" "ldn_tx_trace.c" "ldn_udp.c" "ldn_wire.c"
     INCLUDE_DIRS "."
-    REQUIRES esp_event esp_netif esp_wifi esp_timer nvs_flash wpa_supplicant esp_hw_support spi_flash esp_driver_uart lwip
+    REQUIRES esp_event esp_netif esp_wifi esp_timer nvs_flash wpa_supplicant esp_hw_support spi_flash esp_driver_uart lwip led_strip
 )
 
 if(CONFIG_LDN_PROBE_PRIVATE_RAW_TX)

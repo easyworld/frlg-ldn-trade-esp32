@@ -19,6 +19,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
+#include "ldn_led.h"
 #if CONFIG_LDN_PROBE_CONTROL_PORT
 #include "ldn_control.h"
 #include "ldn_session.h"
@@ -254,6 +255,7 @@ static void send_test_action(void)
 static void run_public_probe(void)
 {
     s_probe_task = xTaskGetCurrentTaskHandle();
+    ldn_led_set(LDN_LED_IDLE);
     ESP_LOGI(TAG, "public probe on 2.4 GHz channel %d",
              CONFIG_LDN_PROBE_CHANNEL);
 
@@ -479,12 +481,14 @@ static void install_ldn_keys(void)
     const bool group_ok = read_key_back(1, LDN_KEY_FLAG_GROUP, s_ccmp_key);
     if (pairwise != 0 || group != 0 || !group_ok) {
         ESP_LOGE(TAG, "CCMP key injection did not verify; not authorizing port");
+        ldn_led_set(LDN_LED_ERROR);
         return;
     }
 
     const bool authorized = esp_wifi_auth_done_internal();
     ESP_LOGI(TAG, "esp_wifi_auth_done_internal: %s",
              authorized ? "true" : "false");
+    ldn_led_set(LDN_LED_LINKED);
 }
 
 static void wifi_event(void *argument, esp_event_base_t base, int32_t id,
@@ -505,6 +509,7 @@ static void wifi_event(void *argument, esp_event_base_t base, int32_t id,
     } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
         const wifi_event_sta_disconnected_t *event = data;
         ESP_LOGW(TAG, "STA_DISCONNECTED reason=%u", event->reason);
+        ldn_led_set(LDN_LED_IDLE);
 #if CONFIG_LDN_PROBE_CONTROL_PORT
         ldn_control_link(false);
 #endif
@@ -531,6 +536,7 @@ void ldn_session_stop(void)
     portENTER_CRITICAL(&s_stats_lock);
     s_advertisement.length = 0;
     portEXIT_CRITICAL(&s_stats_lock);
+    ldn_led_set(LDN_LED_IDLE);
 }
 
 esp_err_t ldn_session_scan(unsigned channel)
@@ -574,12 +580,14 @@ esp_err_t ldn_session_configure(const char *ssid, const char *bssid, const char 
     s_association_seen = false; s_joining = true; s_join_started = esp_timer_get_time();
     result = esp_wifi_connect();
     if (result != ESP_OK) s_joining = false;
+    else ldn_led_set(LDN_LED_JOINING);
     return result;
 }
 
 static void run_private_join(void)
 {
     s_probe_task = xTaskGetCurrentTaskHandle();
+    ldn_led_set(LDN_LED_IDLE);
     ldn_control_init(s_station_netif, s_target_bssid);
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event, NULL));
     int64_t last_advertisement = 0;
@@ -590,6 +598,7 @@ static void run_private_join(void)
             s_joining = false; install_ldn_keys();
         } else if (s_joining && now - s_join_started > 15000000) {
             ldn_session_stop(); printf("LDN_ERROR ASSOCIATION_TIMEOUT\n");
+            ldn_led_set(LDN_LED_ERROR);
         }
         if (now - last_advertisement >= 250000) { export_advertisement(); last_advertisement = now; }
         vTaskDelay(pdMS_TO_TICKS(2));
@@ -599,6 +608,7 @@ static void run_private_join(void)
 
 void app_main(void)
 {
+    ldn_led_init();
     esp_chip_info_t chip;
     esp_chip_info(&chip);
     uint32_t flash_bytes = 0;

@@ -7,6 +7,23 @@ config LDN_PROBE_CHANNEL
     help
         Channel used by the Switch LDN session. ESP32-C6 only supports 2.4 GHz.
 
+config LDN_PROBE_STATUS_LED
+    bool "Breathe the onboard WS2812 as a status light"
+    default y
+    help
+        White while booting, slow blue while waiting for the host, fast amber
+        while joining a room, green when the room is authenticated, and fast
+        red on join failure for a few seconds. Requires an ESP-IDF network
+        connection on the first build to fetch espressif/led_strip.
+
+config LDN_PROBE_STATUS_LED_GPIO
+    int "Status WS2812 data GPIO"
+    range 0 30
+    default 8
+    depends on LDN_PROBE_STATUS_LED
+    help
+        ESP32-C6 dev boards wire the onboard RGB LED to GPIO8.
+
 config LDN_PROBE_SEND_TEST_ACTION
     bool "Send one harmless vendor action frame"
     depends on !LDN_PROBE_PRIVATE_JOIN

@@ -336,31 +336,45 @@ static int write_key(int index, int set_tx, enum ldn_key_flag flag)
         sizeof(sequence), s_ccmp_key, sizeof(s_ccmp_key), flag);
 }
 
-static void install_ldn_keys(void)
+static bool install_ldn_keys(void)
 {
     /* The S3 driver only finalizes the station context (connected event and CAM
        slots) once the handshake is reported done, so authorize before injecting;
        C3/C6 used the opposite order. */
     const bool authorized = esp_wifi_auth_done_internal();
     printf("LDN_AUTH_PORT %u\n", authorized);
-    (void)authorized;
+    if (!authorized) {
+        ESP_LOGE(TAG, "driver did not finalize the station context; aborting join");
+        ldn_session_stop();
+        printf("LDN_ERROR AUTH_PORT_FAILED\n");
+        return false;
+    }
 
     const enum ldn_key_flag pairwise_flags =
         (enum ldn_key_flag)(LDN_KEY_FLAG_PAIRWISE | LDN_KEY_FLAG_RX | LDN_KEY_FLAG_TX);
     const enum ldn_key_flag group_flags =
         (enum ldn_key_flag)(LDN_KEY_FLAG_GROUP | LDN_KEY_FLAG_RX);
 
-    /* Readback cannot verify keys on the S3: the CAM stores them obfuscated and
-       the get path answers with stale bytes. Encrypted LDN traffic is the real
-       check, so the result here is diagnostic only. */
     const int pairwise = write_key(0, 1, pairwise_flags);
     const int group = write_key(1, 0, group_flags);
     const bool pairwise_read = read_key_back(0, LDN_KEY_FLAG_PAIRWISE, s_ccmp_key);
     const bool group_read = read_key_back(1, LDN_KEY_FLAG_GROUP, s_ccmp_key);
     printf("LDN_KEY_STATUS pairwise_result=%d group_result=%d pairwise_readback=%u group_readback=%u\n",
            pairwise, group, pairwise_read, group_read);
+    /* Readback cannot verify keys on the S3: the CAM stores them obfuscated and
+       the get path answers with stale bytes. Encrypted LDN traffic is the real
+       check, so the result here is diagnostic only. A failed write is not:
+       injecting nothing while staying associated would leave the host waiting
+       on a session that can never authenticate, so tear it down instead. */
+    if (pairwise != 0 || group != 0) {
+        ESP_LOGE(TAG, "CCMP key injection failed; aborting join");
+        ldn_session_stop();
+        printf("LDN_ERROR KEY_INSTALL_FAILED pairwise=%d group=%d\n", pairwise, group);
+        return false;
+    }
     ESP_LOGI(TAG, "keys injected; s3 cam readback (unreliable): pairwise=%d group=%d",
              pairwise_read, group_read);
+    return true;
 }
 
 static void wifi_event(void *argument, esp_event_base_t base, int32_t id,

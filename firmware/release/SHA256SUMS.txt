@@ -1,2 +1,3 @@
 937bdba624a01f5e0e6d3b7dd91a3737b8b3d837c31932ab5cad86ff129475f6  frlg-trade-esp32c3-usb-4mb-full.bin
 15220a529ddce7e7992af576b73494b5d6778f0141ff3d84a93d85f469249ce1  frlg-trade-esp32c6-uart-16mb-full.bin
+0673b9718a3ad03e9674e25681399b71c29de82c152cba1aff93b267c96e99f3  frlg-trade-esp32s3-uart-16mb-full.bin

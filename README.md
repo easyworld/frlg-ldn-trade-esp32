@@ -28,7 +28,7 @@ flowchart LR
 | `firmware/esp32-c6` | [ESP32-C6 固件](firmware/esp32-c6/README.md)，使用 UART，含 C6 专用构建和审计工具 |
 | `firmware/esp32-c3` | [ESP32-C3 独立实验固件](firmware/esp32-c3/README.md)，使用原生 USB Serial/JTAG |
 | `firmware/esp32-s3` | [ESP32-S3 独立实验固件](firmware/esp32-s3/README.md)，以 C3 为蓝本，使用 UART0，已实板验证完整交易 |
-| `firmware/tools` | 两种芯片共用的 SDK 安装、环境激活与 Windows 无线诊断工具 |
+| `firmware/tools` | 三种芯片共用的 SDK 安装、环境激活与 Windows 无线诊断工具 |
 | `assets/party` | 默认 MEWTWO、DEOXYS；程序不修改这些资源 |
 | `assets/sprites` | 本地宝可梦 PNG 图片，1–386 |
 | `app` | win-x64、依赖框架的单文件 EXE |
@@ -87,17 +87,15 @@ Switch 创建 FireRed Leader 房间后点击连接；进入房间、选择和确
 依赖框架（不附带 .NET 运行时）、单文件，输出为 `app/Frlg.Trade.Desktop.exe`，不另附 DLL 或 PDB。
 
 使用以下脚本构建与烧写固件需要完整 ESP-IDF 工具链。
-安装 [EIM](https://github.com/espressif/idf-im-cli)（`winget install Espressif.EIM-CLI`）
-后运行 `firmware/tools/setup.ps1`，脚本默认通过国内镜像（Espressif CDN、gh-proxy、
-清华 PyPI）安装 C6、C3 所需工具链：SDK 位于 `%USERPROFILE%\esp\v6.1\esp-idf`，
-工具链与 Python 环境位于 `C:\Espressif\tools`；`-UseGitHub` 切换回官方源。
+可用 `firmware/tools/setup.ps1` 安装 C6、C3、S3 所需工具链。
+SDK 默认路径保持为 `%USERPROFILE%\esp\esp-idf-v6.1`，使用 SDK 自带的 `export.ps1` 激活环境。
 
 固件固定使用 **ESP-IDF v6.1，提交 `fff9895c82d744c7237be8847347bdd1b07c6643`**。
-两种芯片的 LDN 桥接均使用私有 WPA 回调表与密钥安装接口。
+三种芯片的 LDN 桥接均使用私有 WPA 回调表与密钥安装接口。
 C6 工程还包含软件 CCMP 原始帧发送适配，以及发送诊断使用的驱动描述符和 DMA 结构偏移。
 这些私有 ABI、符号和内存布局不保证跨 SDK 版本兼容，因此不能直接更换 SDK。
 
-环境激活脚本会校验 SDK 提交；开启私有 raw TX 时，
+安装和构建脚本会校验 SDK 提交及相关归档的 SHA256；开启私有 raw TX 时，
 还会校验 C6 的 `libnet80211.a` 和 `libpp.a`。发送适配从厂商库提取对象文件，
 通过修改 ELF 符号表生成独立 overlay，将部分调用接入自定义实现；
 不会修改已安装的 SDK，并会检查所用发送和帧校验代码段的机器指令字节保持不变。
@@ -128,7 +126,7 @@ ESP32-C3：
 ```
 
 C3 默认 4 MB Flash，通过原生 USB Serial/JTAG 连接电脑，详情见 [C3 工程说明](firmware/esp32-c3/README.md)。
-两种芯片的构建产物分别保存在各自工程的 `build*` 目录内。
+三种芯片的构建产物分别保存在各自工程的 `build*` 目录内。
 
 ## 验证与移植
 

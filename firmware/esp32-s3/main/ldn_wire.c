@@ -6,10 +6,13 @@
 #include <string.h>
 #include "s3_transport.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "ldn_wire.h"
 
 #define MAX_FRAME 4096
 static bool active;
+static SemaphoreHandle_t tx_lock;
 static uint32_t session, request;
 static uint8_t input[MAX_FRAME + 32];
 static size_t used;
@@ -33,6 +36,7 @@ static void send_frame(uint8_t kind, const uint8_t *payload, size_t length)
 {
     static uint8_t frame[MAX_FRAME], encoded[MAX_FRAME + 32];
     if (length > MAX_FRAME - 16) return;
+    xSemaphoreTake(tx_lock, portMAX_DELAY);
     frame[0] = 1; frame[1] = kind;
     put32(frame + 2, request); put32(frame + 6, session);
     frame[10] = length & 255; frame[11] = length >> 8;
@@ -49,6 +53,7 @@ static void send_frame(uint8_t kind, const uint8_t *payload, size_t length)
     }
     encoded[code_at] = code; encoded[out++] = 0;
     s3_transport_write(encoded, out);
+    xSemaphoreGive(tx_lock);
 }
 
 bool ldn_wire_active(void) { return active; }
@@ -64,10 +69,11 @@ void ldn_wire_raw(const char *text)
 /* Keep driver logs observable over the wire: each line ships as one event frame. */
 static int wire_log_vprintf(const char *format, va_list args)
 {
-    static char line[512];
+    char line[512];
     if (!active) return vprintf(format, args);
     int n = vsnprintf(line, sizeof(line), format, args);
     if (n < 0) return n;
+    if (n >= sizeof(line)) n = sizeof(line) - 1;
     while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = 0;
     if (n > 0 && strncmp(line, "LDN_", 4) != 0) send_frame(3, (const uint8_t *)line, n);
     return n;
@@ -75,6 +81,10 @@ static int wire_log_vprintf(const char *format, va_list args)
 
 void ldn_wire_enable(void)
 {
+    if (tx_lock == NULL) {
+        tx_lock = xSemaphoreCreateMutex();
+        configASSERT(tx_lock != NULL);
+    }
     active = true;
     /* A newly opened host starts at session zero and negotiates a fresh BEGIN. */
     session = 0;

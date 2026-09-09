@@ -480,7 +480,7 @@ void app_main(void)
     ESP_LOGI(TAG, "target=%s revision=%u cores=%u flash=%" PRIu32 " MiB IDF=%s",
              CONFIG_IDF_TARGET, chip.revision, chip.cores,
              flash_bytes / (1024 * 1024), esp_get_idf_version());
-    ESP_LOGI(TAG, "console=USB Serial/JTAG");
+    ESP_LOGI(TAG, "console=UART0");
     esp_err_t error = nvs_flash_init();
     if (error == ESP_ERR_NVS_NO_FREE_PAGES ||
         error == ESP_ERR_NVS_NEW_VERSION_FOUND) {

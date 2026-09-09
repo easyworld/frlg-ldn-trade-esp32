@@ -9,7 +9,7 @@ param(
     [ValidateRange(1, 14)][int]$Channel = 1,
     [string]$Port,
     [ValidateRange(9600, 2000000)][int]$Baud = 460800,
-    [string]$SdkPath = (Join-Path $env:USERPROFILE 'esp/esp-idf-v6.1')
+    [string]$SdkPath = (Join-Path $env:USERPROFILE 'esp/v6.1/esp-idf')
 )
 $ErrorActionPreference = 'Stop'
 if ($Action -notin @('doctor', 'matrix', 'identify') -and $Mode -eq 'serial' -and $Console -ne 'uart') {

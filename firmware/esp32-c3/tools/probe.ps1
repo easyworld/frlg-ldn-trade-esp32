@@ -2,7 +2,7 @@
 param(
     [ValidateSet('build', 'flash', 'identify')][string]$Action = 'build',
     [string]$Port,
-    [string]$SdkPath = (Join-Path $env:USERPROFILE 'esp/esp-idf-v6.1')
+    [string]$SdkPath = (Join-Path $env:USERPROFILE 'esp/v6.1/esp-idf')
 )
 $ErrorActionPreference = 'Stop'
 if ($Action -ne 'build' -and $Port -notmatch '^COM[1-9][0-9]*$') { throw 'Specify the C3 port with -Port COM<number>.' }

@@ -1,7 +1,7 @@
 # FRLG 交换中心
 
 本项目基于 [tornadus/frlg-ldn-trade](https://github.com/tornadus/frlg-ldn-trade) 移植，
-提供 Windows C# 图形上位机与 ESP32-C6、ESP32-C3 无线桥接固件，两个芯片分别维护独立工程。
+提供 Windows C# 图形上位机与 ESP32-C6、ESP32-C3、ESP32-S3 无线桥接固件，三种芯片分别维护独立工程。
 
 ![screenshot](./screenshot.png)
 
@@ -14,7 +14,7 @@ PKHeX.Core 负责 PK3 展示与编辑。固件负责无线关联、会话密钥�
 
 ```mermaid
 flowchart LR
-    Switch["Switch（游戏房间）"] <-->|LDN 无线通信| ESP32["ESP32-C6 / C3（无线桥接固件）"]
+    Switch["Switch（游戏房间）"] <-->|LDN 无线通信| ESP32["ESP32-C6 / C3 / S3（无线桥接固件）"]
     ESP32 <-->|USB 串口| PC["PC 上位机（协议处理与宝可梦交换）"]
 ```
 
@@ -27,12 +27,27 @@ flowchart LR
 | `host/tests` | .NET 协议测试、离线回放、实板诊断入口 |
 | `firmware/esp32-c6` | [ESP32-C6 固件](firmware/esp32-c6/README.md)，使用 UART，含 C6 专用构建和审计工具 |
 | `firmware/esp32-c3` | [ESP32-C3 独立实验固件](firmware/esp32-c3/README.md)，使用原生 USB Serial/JTAG |
-| `firmware/esp32-s3` | [ESP32-S3 独立实验固件](firmware/esp32-s3/README.md)，以 C3 为蓝本，使用 UART0，已实板验证完整交易 |
+| `firmware/esp32-s3` | [ESP32-S3 独立实验固件](firmware/esp32-s3/README.md)，以 C3 为蓝本，使用 UART0，PR 作者已验证完整交易 |
+| `firmware/release` | [完整烧录固件、烧录说明与 SHA256 校验值](firmware/release/README.md) |
 | `firmware/tools` | 三种芯片共用的 SDK 安装、环境激活与 Windows 无线诊断工具 |
 | `assets/party` | 默认 MEWTWO、DEOXYS；程序不修改这些资源 |
 | `assets/sprites` | 本地宝可梦 PNG 图片，1–386 |
 | `app` | win-x64、依赖框架的单文件 EXE |
 | `local` | 待用队伍、设置、会话日志和接收的 PK3，不应公开 |
+
+## 固件选择
+
+首次烧录可直接使用 [firmware/release](firmware/release/README.md) 中的完整 BIN，无需先安装 SDK。文件包含启动程序、分区表和应用，均从 **`0x0`** 烧录，Flash 模式为 **DIO / 80 MHz**。
+
+| 芯片 | 完整固件 | Flash | 连接电脑的接口 |
+| --- | --- | --- | --- |
+| ESP32-C6 | [C6 完整 BIN](firmware/release/frlg-trade-esp32c6-uart-16mb-full.bin) | 16 MB | UART（USB 转串口） |
+| ESP32-C3 | [C3 完整 BIN](firmware/release/frlg-trade-esp32c3-usb-4mb-full.bin) | 4 MB | 原生 USB Serial/JTAG |
+| ESP32-S3 | [S3 完整 BIN](firmware/release/frlg-trade-esp32s3-uart-16mb-full.bin) | 16 MB | UART0（板载 USB 转串口，如 CH340） |
+
+按芯片、Flash 容量和接口选择固件。S3 有两个 USB 接口的开发板应使用连接 USB 转 UART0 芯片的接口；原生 USB 接口不能代替本固件的 UART0 通信。S3 初始波特率为 115200，上位机连接时自动切换至 921600。
+
+每个 BIN 的源码版本、构建日期和验证范围见 [发布说明](firmware/release/README.md)，下载后可使用 [SHA256SUMS.txt](firmware/release/SHA256SUMS.txt) 核对。
 
 ## 运行与密钥
 
@@ -126,7 +141,17 @@ ESP32-C3：
 ```
 
 C3 默认 4 MB Flash，通过原生 USB Serial/JTAG 连接电脑，详情见 [C3 工程说明](firmware/esp32-c3/README.md)。
-三种芯片的构建产物分别保存在各自工程的 `build*` 目录内。
+
+ESP32-S3：
+
+```powershell
+.\firmware\esp32-s3\tools\probe.ps1 -Action build
+.\firmware\esp32-s3\tools\probe.ps1 -Action flash -Port COM5
+```
+
+S3 默认 16 MB Flash、DIO、80 MHz，通过 UART0 与电脑通信。使用现有 SDK 路径；如缺少 S3 的 Xtensa 工具链，运行 `.\firmware\tools\setup.ps1` 补齐。详情见 [S3 工程说明](firmware/esp32-s3/README.md)。
+
+三种芯片的构建产物分别保存在各自工程的 `build*` 目录内。所有烧录命令中的 COM 端口均需替换为实际设备端口。
 
 ## 验证与移植
 
@@ -142,6 +167,16 @@ dotnet run --project host/tests/Frlg.Trade.Tests.csproj -c Release -- --device C
 WPF 自检会在 EXE 同目录生成 `local/ui-checks` 渲染图，测试结束后恢复真实队伍与设置。
 
 C6 已完成两笔真实交易，并验证可连接新建的不同信道房间；C3 已完成实际进房及一次完整交易验证。
+S3 的 PR 作者已在 16 MB Flash、UART0 桥接的实板上完成入房与一笔完整交易。2026-09-09 发布的合并后 S3 固件已通过编译、镜像校验和逐字节合并验证，上位机离线测试通过 9,115 项检查；该发布版本尚未重新进行实板交易验证。
+
+S3 入网诊断可运行以下命令（需连接开发板、准备密钥并在 Switch 创建房间）：
+
+```powershell
+dotnet run --project host/tests/Frlg.Trade.Tests.csproj -c Release -- --join COM5
+```
+
+`--join` 只扫描房间、配置无线关联并回显 45 秒设备帧，不执行完整的 LDN 认证或宝可梦交易；完整交易验证使用图形上位机。
+
 第三方设备实现请参考 [串口通信协议](docs/SERIAL_PROTOCOL.md)。
 
 ## 许可与数据
@@ -149,4 +184,4 @@ C6 已完成两笔真实交易，并验证可连接新建的不同信道房间�
 项目许可见根目录 `LICENSE`（AGPL-3.0）；LDN 协议组件的 GPL-3.0 许可见
 `licenses/LDN-GPL-3.0.txt`。PKHeX.Core 固定为 26.8.26，
 依赖由 `packages.lock.json` 锁定。图片来源见 `assets/README.md`。
-默认 PK3 来自用户提供的数据；分享前按需移除。`local`、`prod.keys` 与构建产物均忽略提交。
+默认 PK3 来自用户提供的数据；分享前按需移除。`local`、`prod.keys` 与中间构建产物均忽略提交；可分发的完整固件单独保存在 `firmware/release`。

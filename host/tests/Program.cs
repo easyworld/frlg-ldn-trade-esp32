@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using Frlg.Trade.Core;
 
@@ -24,6 +26,70 @@ if (args.Length >= 2 && args[0] == "--device")
     catch (ConnectionException) { Console.WriteLine("Invalid config rejection: OK"); }
     device.Command("LDN_SCAN 1"); Console.WriteLine("Command recovery: OK");
     device.Stop(); Console.WriteLine("Stop: OK"); return;
+}
+if (args.Length >= 2 && args[0] == "--join")
+{
+    // Real-board join diagnostics: scan like the desktop host, send LDN_CONFIG,
+    // then echo every device frame so firmware-side join failures stay visible.
+    using var device = new SerialDevice(args[1], CancellationToken.None);
+    device.Handshake(); Console.WriteLine($"Handshake: {device.Model}");
+    var keys = KeyFile.LoadDefault();
+    var scanTime = Stopwatch.StartNew(); LdnNetwork? network = null;
+    int[] channels = [1, 6, 11, 2, 3, 4, 5, 7, 8, 9, 10];
+    while (network == null && scanTime.Elapsed.TotalSeconds < 25)
+    {
+        foreach (int channel in channels)
+        {
+            device.Command($"LDN_SCAN {channel}");
+            var dwell = Stopwatch.StartNew();
+            while (dwell.ElapsedMilliseconds < 500 && network == null)
+            {
+                foreach (var frame in device.Drain())
+                {
+                    if (frame.Kind != 3) continue;
+                    var fields = Encoding.UTF8.GetString(frame.Payload).Split(' ');
+                    if (fields.Length != 4 || fields[0] != "LDN_ADV") continue;
+                    try
+                    {
+                        var room = LdnKeys.Decode(keys, Convert.FromHexString(fields[3]),
+                            Convert.FromHexString(fields[1].Replace(":", "")), int.Parse(fields[2]));
+                        if (room.CommunicationId == TradeSession.FireRedId && room.Policy != 1 &&
+                            room.Members.Count < room.Maximum)
+                            network = room;
+                    }
+                    catch (Exception) { }
+                }
+                Thread.Sleep(5);
+            }
+            if (network != null || scanTime.Elapsed.TotalSeconds >= 25) break;
+        }
+    }
+    if (network == null) { Console.WriteLine("No joinable FireRed room found."); return; }
+    Console.WriteLine($"Room: protocol={network.Protocol} version={network.Version} channel={network.Channel} " +
+        $"members={network.Members.Count}/{network.Maximum} ssid={Convert.ToHexString(network.Ssid)}");
+    var derived = new LdnKeys(keys, network.Protocol);
+    device.Command($"LDN_CONFIG {network.Channel} {Convert.ToHexString(network.Ssid).ToLowerInvariant()} " +
+        $"{Bin.Mac(network.Host)} {Convert.ToHexString(derived.Data(network))}", 8);
+    Console.WriteLine("LDN_CONFIG accepted; echoing device frames for 45s:");
+    var watch = Stopwatch.StartNew(); double nextStatus = 0;
+    while (watch.Elapsed.TotalSeconds < 45)
+    {
+        foreach (var frame in device.Drain())
+        {
+            string text = frame.Kind == 5
+                ? $"{frame.Payload.Length}B {Convert.ToHexString(frame.Payload[..Math.Min(12, frame.Payload.Length)])}"
+                : Encoding.UTF8.GetString(frame.Payload);
+            Console.WriteLine($"[{watch.Elapsed.TotalSeconds,6:0.0}] kind{frame.Kind} {text}");
+        }
+        if (watch.Elapsed.TotalSeconds >= nextStatus)
+        {
+            foreach (string line in device.Command("LDN_STATUS"))
+                Console.WriteLine($"[{watch.Elapsed.TotalSeconds,6:0.0}] status {line}");
+            nextStatus += 2;
+        }
+        Thread.Sleep(50);
+    }
+    return;
 }
 if (args.Length >= 2 && args[0] == "--live")
 {

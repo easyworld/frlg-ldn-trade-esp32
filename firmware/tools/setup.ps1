@@ -40,10 +40,11 @@ if ($LASTEXITCODE -ne 0 -or ($submodules | Where-Object { $_ -match '^[+-U]' }))
     throw 'SDK submodules are missing or differ from the pinned release.'
 }
 if (-not $UseGitHub) { $env:IDF_GITHUB_ASSETS = 'dl.espressif.cn/github_assets' }
-& python (Join-Path $sdk 'tools/idf_tools.py') --non-interactive --idf-path $sdk install --targets=esp32c6,esp32c3
+& python (Join-Path $sdk 'tools/idf_tools.py') --non-interactive --idf-path $sdk install --targets=esp32c6,esp32c3,esp32s3
 if ($LASTEXITCODE -ne 0) { throw 'ESP-IDF tool installation failed.' }
 & python (Join-Path $sdk 'tools/idf_tools.py') --non-interactive --idf-path $sdk install-python-env --features=core
 if ($LASTEXITCODE -ne 0) { throw 'ESP-IDF Python environment installation failed.' }
 Write-Host "Installed pinned ESP-IDF at $sdk"
 Write-Host 'C6: .\firmware\esp32-c6\tools\probe.ps1 -Action doctor'
 Write-Host 'C3: .\firmware\esp32-c3\tools\probe.ps1 -Action build'
+Write-Host 'S3: .\firmware\esp32-s3\tools\probe.ps1 -Action build'

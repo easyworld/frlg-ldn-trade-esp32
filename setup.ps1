@@ -2,7 +2,7 @@
 param()
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-& dotnet restore (Join-Path $root 'host/desktop/Frlg.Trade.Desktop.csproj') --locked-mode -r win-x64 -p:PublishProfile=FolderProfile
+& dotnet restore (Join-Path $root 'host/desktop/Frlg.Trade.Desktop.csproj') --force-evaluate -r win-x64 -p:PublishProfile=FolderProfile
 if ($LASTEXITCODE -ne 0) { throw '.NET dependency restore failed.' }
 & dotnet publish (Join-Path $root 'host/desktop/Frlg.Trade.Desktop.csproj') -c Release --no-restore -p:PublishProfile=FolderProfile
 if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed.' }

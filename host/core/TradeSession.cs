@@ -65,27 +65,75 @@ public sealed class TradeSession(Action<object> emit)
             }
             if (network == null) throw new ConnectionException("没有找到可加入的火红 Leader 房间，请确认主机仍在等待。");
             var derived = new LdnKeys(keys, network.Protocol); var auth = new LdnAuthentication(network, derived);
-            Record($"Room verified: protocol={network.Protocol} version={network.Version} channel={network.Channel}");
+            Record($"Room verified: protocol={network.Protocol} version={network.Version} channel={network.Channel} members={network.Members.Count}/{network.Maximum}");
             Phase("正在关联并认证房间");
-            device.Command($"LDN_CONFIG {network.Channel} {Convert.ToHexString(network.Ssid).ToLowerInvariant()} {Bin.Mac(network.Host)} {Convert.ToHexString(derived.Data(network))}", 8);
+            string joinConfig = $"LDN_CONFIG {network.Channel} {Convert.ToHexString(network.Ssid).ToLowerInvariant()} {Bin.Mac(network.Host)} {Convert.ToHexString(derived.Data(network))}";
+            device.Command(joinConfig, 8);
             byte[]? ourMac = null; LdnNetwork? membership = null; bool accepted = false;
             var joinTime = Stopwatch.StartNew(); double nextStatus = 0, nextAuth = double.PositiveInfinity; int attempts = 0;
+            int associationRetries = 0;
+            void ReconfigureAssociation(double now, string cause)
+            {
+                if (associationRetries++ >= 2)
+                    throw new ConnectionException($"无线关联反复断开：{cause}");
+                Record($"Association retry {associationRetries}: {cause}");
+                auth = new LdnAuthentication(network, derived);
+                device.Command(joinConfig, 8);
+                ourMac = null; membership = null; accepted = false; attempts = 0;
+                nextStatus = now + 0.2; nextAuth = double.PositiveInfinity;
+            }
             while (joinTime.Elapsed.TotalSeconds < 40 && !(accepted && membership != null))
             {
                 double now = joinTime.Elapsed.TotalSeconds;
+                bool retryAssociation = false;
                 if (now >= nextStatus)
                 {
                     foreach (string line in device.Command("LDN_STATUS"))
+                    {
                         if (line.StartsWith("LDN_LINK 1 ") && ourMac == null) { ourMac = Bin.Hex(line.Split(' ')[2].Replace(":", "")); nextAuth = now; }
+                        if (line.StartsWith("LDN_ESP32_STATS ")) Record(line);
+                    }
                     nextStatus = now + 2;
                 }
                 if (now >= nextAuth && !accepted && attempts < 3)
-                { device.Command("LDN_TX " + Convert.ToHexString(auth.Request)); nextAuth = now + 0.7; attempts++; Record($"LDN authentication request {attempts}"); }
+                {
+                    attempts++;
+                    try
+                    {
+                        foreach (string line in device.Command("LDN_TX " + Convert.ToHexString(auth.Request)))
+                            if (line.StartsWith("LDN_TX_RESULT ")) Record(line);
+                        Record($"LDN authentication request {attempts}");
+                    }
+                    catch (ConnectionException error) when (error.Message.StartsWith("LDN_TX_RESULT ", StringComparison.Ordinal))
+                    {
+                        /* A classic ESP32 can briefly reject raw TX while the
+                           station context settles; let the next auth slot retry. */
+                        Record(error.Message);
+                    }
+                    nextAuth = now + 0.7;
+                }
                 foreach (var frame in device.Drain())
                 {
                     string text = frame.Kind == 3 ? Text(frame) : "";
                     if (text.StartsWith("LDN_LINK 1 ") && ourMac == null) { ourMac = Bin.Hex(text.Split(' ')[2].Replace(":", "")); nextAuth = now; }
-                    if (text.StartsWith("LDN_ERROR ")) throw new ConnectionException(text);
+                    if (text.StartsWith("LDN_DISCONNECTED ") || text.StartsWith("LDN_RECONNECT") ||
+                        text.StartsWith("LDN_AUTH_PORT ") || text.StartsWith("LDN_KEY_STATUS ") ||
+                        text.StartsWith("LDN_KEY_ORDER ") ||
+                        text.StartsWith("LDN_LINK ") || text.StartsWith("LDN_SESSION_RESET ") ||
+                        text.StartsWith("LDN_STATE ")) Record(text);
+                    if (text.StartsWith("LDN_DISCONNECTED 242") || text.StartsWith("LDN_SESSION_RESET 242") ||
+                        text.StartsWith("LDN_LINK 0 "))
+                        retryAssociation = true;
+                    if (text.StartsWith("LDN_ERROR "))
+                    {
+                        Record(text);
+                        if (text.Contains("ASSOCIATION_TIMEOUT", StringComparison.Ordinal))
+                        {
+                            retryAssociation = true;
+                            break;
+                        }
+                        throw new ConnectionException(text);
+                    }
                     if (text.StartsWith("LDN_RX "))
                     {
                         var fields = text.Split(' ');
@@ -99,6 +147,12 @@ public sealed class TradeSession(Action<object> emit)
                         if (ourMac != null && room.Members.Any(m => m.Mac.AsSpan().SequenceEqual(ourMac))) membership = room;
                     }
                 }
+                if (retryAssociation)
+                {
+                    ReconfigureAssociation(now, "peer disconnect");
+                    Thread.Sleep(100);
+                    continue;
+                }
                 Thread.Sleep(2);
             }
             if (ourMac == null || !accepted || membership == null) throw new ConnectionException("房间认证超时，请确认 Leader 房间并重试。");
@@ -107,7 +161,7 @@ public sealed class TradeSession(Action<object> emit)
             ValidateMembers(membership, ours, host);
             device.Command($"LDN_NET {ours.Ip} {host.Ip}");
             foreach (var m in membership.Members.Where(m => m.Index != ours.Index)) device.Command($"LDN_NEIGH {m.Ip} {Convert.ToHexString(m.Mac)}");
-            Record($"Network ready: serialBad={device.BadFrames}");
+            Record($"Network ready: index={ours.Index} ip={ours.Ip} members={membership.Members.Count}/{membership.Maximum} serialBad={device.BadFrames}");
             var peers = membership.Members.Where(m => m.Index != ours.Index).ToDictionary(m => m.Ip, m => m.Mac);
             emit(new { @event = "connected" });
             Phase("已加入房间，等待 Leader 确认");
@@ -118,12 +172,38 @@ public sealed class TradeSession(Action<object> emit)
             using var simulator = new Simulator(network.Ssid, ourMac, network.Host, ours.Ip, host.Ip, engine,
                 (data, destination) => { device.SendDatagram(data, destination); Capture("out", data, ours.Ip, destination); });
             simulator.Log += Record;
-            double nextPing = 0, nextTick = 0, lastReceive = 0, closeAt = double.PositiveInfinity, leaveAt = double.PositiveInfinity;
+            const double tickInterval = 1 / 59.727;
+            bool collectEsp32Stats = device.Model == "esp32";
+            double nextPing = 0, nextStats = collectEsp32Stats ? 1 : double.PositiveInfinity;
+            double nextTick = 0, lastReceive = 0, closeAt = double.PositiveInfinity, leaveAt = double.PositiveInfinity;
             bool closeSeen = false, doneSeen = false;
+            int pingTimeouts = 0;
             while (!simulator.HostDisconnected)
             {
                 cancel.ThrowIfCancellationRequested(); double now = clock.Elapsed.TotalSeconds;
-                if (now >= nextPing) { device.Command("LDN_PING", 5); nextPing = now + 1; }
+                if (now >= nextPing)
+                {
+                    try
+                    {
+                        device.Command("LDN_PING", 5);
+                        pingTimeouts = 0;
+                    }
+                    catch (TimeoutException)
+                    {
+                        // PING also refreshes the firmware heartbeat. A delayed
+                        // response must not abort the RFU exchange by itself.
+                        pingTimeouts++;
+                        Record($"LDN_PING_TIMEOUT {pingTimeouts}");
+                    }
+                    nextPing = now + 1;
+                }
+                if (now >= nextStats)
+                {
+                    foreach (string line in device.Command("LDN_STATUS", 5))
+                        if (line.StartsWith("LDN_ESP32_STATS ")) Record(line);
+                    nextStats = now + 2;
+                }
+                string? wirelessFailure = null;
                 foreach (var frame in device.Drain())
                 {
                     if (frame.Kind == 5 && frame.Payload.Length >= 4)
@@ -138,11 +218,22 @@ public sealed class TradeSession(Action<object> emit)
                     {
                         string text = Text(frame);
                         if (text.StartsWith("LDN_ERROR ") || text.StartsWith("LDN_LINK 0 ") || text.StartsWith("LDN_NET_LOST") || text.StartsWith("LDN_UDP_ERROR "))
-                            throw new ConnectionException("无线连接已断开：" + text);
+                        {
+                            wirelessFailure ??= text;
+                            continue;
+                        }
                         var room = Advertisement(frame, keys);
                         if (room != null && room.Host.AsSpan().SequenceEqual(network.Host))
                         {
-                            VerifySameRoom(network, room); ValidateMembers(room, ours, host);
+                            VerifySameRoom(network, room);
+                            /* A Switch can publish one transitional beacon while
+                               it adds/removes a member. Do not invalidate an
+                               already authenticated link until our own entry is
+                               present again; the room identity and address
+                               invariants remain strict once the list is usable. */
+                            if (!room.Members.Any(m => m.Ip == ours.Ip && m.Mac.AsSpan().SequenceEqual(ours.Mac)))
+                                continue;
+                            ValidateMembers(room, ours, host);
                             var current = room.Members.Where(m => m.Index != ours.Index).ToDictionary(m => m.Ip, m => m.Mac);
                             foreach (string ip in peers.Keys.Except(current.Keys).ToArray()) device.Command($"LDN_FORGET {ip}");
                             foreach (var (ip, mac) in current) if (!peers.TryGetValue(ip, out var previous) || !mac.AsSpan().SequenceEqual(previous)) device.Command($"LDN_NEIGH {ip} {Convert.ToHexString(mac)}");
@@ -150,7 +241,31 @@ public sealed class TradeSession(Action<object> emit)
                         }
                     }
                 }
-                if (now >= nextTick) { simulator.Tick(); nextTick = now + 1 / 59.727; }
+                if (wirelessFailure != null)
+                {
+                    var reasonWait = Stopwatch.StartNew();
+                    while (reasonWait.ElapsedMilliseconds < 100)
+                    {
+                        foreach (var frame in device.Drain())
+                        {
+                            if (frame.Kind != 3) continue;
+                            string text = Text(frame);
+                            if (text.StartsWith("LDN_DISCONNECTED ") || text.StartsWith("LDN_STATE ") ||
+                                text.StartsWith("LDN_SESSION_RESET "))
+                                Record(text);
+                        }
+                        Thread.Sleep(2);
+                    }
+                    throw new ConnectionException("无线连接已断开：" + wirelessFailure);
+                }
+                // Serial and capture work can hold this loop for more than one GBA frame.
+                // Preserve elapsed ticks so the animation/exit protocol stays on real time.
+                int catchUp = 0;
+                while (now >= nextTick && catchUp++ < 4)
+                {
+                    simulator.Tick();
+                    nextTick += tickInterval;
+                }
                 if (engine.Barrier.Mode == 2 && !closeSeen) { closeSeen = true; closeAt = now + 1.5; }
                 if (engine.Done && !doneSeen) { doneSeen = true; leaveAt = now + 120; Phase("交易已结束，等待 Leader 离房"); }
                 if (now >= closeAt || now >= leaveAt) break;

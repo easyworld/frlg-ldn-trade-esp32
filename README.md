@@ -1,7 +1,7 @@
 # FRLG 交换中心
 
 本项目基于 [tornadus/frlg-ldn-trade](https://github.com/tornadus/frlg-ldn-trade) 移植，
-提供 Windows C# 图形上位机与 ESP32-C6、ESP32-C3、ESP32-S3 无线桥接固件，三种芯片分别维护独立工程。
+提供 Windows C# 图形上位机与经典 ESP32、ESP32-C6、ESP32-C3、ESP32-S3 无线桥接固件，各芯片分别维护独立工程。
 
 ![screenshot](./screenshot.png)
 
@@ -14,7 +14,7 @@ PKHeX.Core 负责 PK3 展示与编辑。固件负责无线关联、会话密钥�
 
 ```mermaid
 flowchart LR
-    Switch["Switch（游戏房间）"] <-->|LDN 无线通信| ESP32["ESP32-C6 / C3 / S3（无线桥接固件）"]
+    Switch["Switch（游戏房间）"] <-->|LDN 无线通信| ESP32["经典 ESP32 / C6 / C3 / S3（无线桥接固件）"]
     ESP32 <-->|USB 串口| PC["PC 上位机（协议处理与宝可梦交换）"]
 ```
 
@@ -25,11 +25,12 @@ flowchart LR
 | `host/core` | 纯 C# LDN、串口协议、Pia、RFU、交易状态机 |
 | `host/desktop` | C# WPF 界面、PKHeX 编辑、队伍与设置保存 |
 | `host/tests` | .NET 协议测试、离线回放、实板诊断入口 |
+| `firmware/esp32` | [经典 ESP32 固件](firmware/esp32/README.md)，使用 UART0，适用于 ESP32-WROOM-32E |
 | `firmware/esp32-c6` | [ESP32-C6 固件](firmware/esp32-c6/README.md)，使用 UART，含 C6 专用构建和审计工具 |
 | `firmware/esp32-c3` | [ESP32-C3 独立实验固件](firmware/esp32-c3/README.md)，使用原生 USB Serial/JTAG |
 | `firmware/esp32-s3` | [ESP32-S3 独立实验固件](firmware/esp32-s3/README.md)，以 C3 为蓝本，使用 UART0，PR 作者已验证完整交易 |
 | `firmware/release` | [完整烧录固件、烧录说明与 SHA256 校验值](firmware/release/README.md) |
-| `firmware/tools` | 三种芯片共用的 SDK 安装、环境激活与 Windows 无线诊断工具 |
+| `firmware/tools` | 各芯片共用的 SDK 安装、环境激活与 Windows 无线诊断工具 |
 | `assets/party` | 默认 MEWTWO、DEOXYS；程序不修改这些资源 |
 | `assets/sprites` | 本地宝可梦 PNG 图片，1–386 |
 | `app` | win-x64、依赖框架的单文件 EXE |
@@ -41,11 +42,14 @@ flowchart LR
 
 | 芯片 | 完整固件 | Flash | 连接电脑的接口 |
 | --- | --- | --- | --- |
+| 经典 ESP32 | [ESP32 完整 BIN](firmware/release/frlg-trade-esp32-uart-4mb-full.bin) | 4 MB | UART0（USB 转串口） |
 | ESP32-C6 | [C6 完整 BIN](firmware/release/frlg-trade-esp32c6-uart-16mb-full.bin) | 16 MB | UART（USB 转串口） |
 | ESP32-C3 | [C3 完整 BIN](firmware/release/frlg-trade-esp32c3-usb-4mb-full.bin) | 4 MB | 原生 USB Serial/JTAG |
 | ESP32-S3 | [S3 完整 BIN](firmware/release/frlg-trade-esp32s3-uart-16mb-full.bin) | 16 MB | UART0（板载 USB 转串口，如 CH340） |
 
 按芯片、Flash 容量和接口选择固件。S3 有两个 USB 接口的开发板应使用连接 USB 转 UART0 芯片的接口；原生 USB 接口不能代替本固件的 UART0 通信。S3 初始波特率为 115200，上位机连接时自动切换至 921600。
+
+经典 ESP32 固件必须使用 **ESP32-WROOM-32E**。旧款 **ESP32-WROOM-32** 存在已知实板兼容性问题，无法可靠完成交换，因此不受支持；购买或接线前请核对模组屏蔽罩上的完整型号。
 
 每个 BIN 的源码版本、构建日期和验证范围见 [发布说明](firmware/release/README.md)，下载后可使用 [SHA256SUMS.txt](firmware/release/SHA256SUMS.txt) 核对。
 
@@ -102,11 +106,11 @@ Switch 创建 FireRed Leader 房间后点击连接；进入房间、选择和确
 依赖框架（不附带 .NET 运行时）、单文件，输出为 `app/Frlg.Trade.Desktop.exe`，不另附 DLL 或 PDB。
 
 使用以下脚本构建与烧写固件需要完整 ESP-IDF 工具链。
-可用 `firmware/tools/setup.ps1` 安装 C6、C3、S3 所需工具链。
+可用 `firmware/tools/setup.ps1` 安装经典 ESP32、C6、C3、S3 所需工具链。
 SDK 默认路径保持为 `%USERPROFILE%\esp\esp-idf-v6.1`，使用 SDK 自带的 `export.ps1` 激活环境。
 
 固件固定使用 **ESP-IDF v6.1，提交 `fff9895c82d744c7237be8847347bdd1b07c6643`**。
-三种芯片的 LDN 桥接均使用私有 WPA 回调表与密钥安装接口。
+四种芯片的 LDN 桥接均使用私有 WPA 回调表与密钥安装接口。
 C6 工程还包含软件 CCMP 原始帧发送适配，以及发送诊断使用的驱动描述符和 DMA 结构偏移。
 这些私有 ABI、符号和内存布局不保证跨 SDK 版本兼容，因此不能直接更换 SDK。
 
@@ -116,6 +120,17 @@ C6 工程还包含软件 CCMP 原始帧发送适配，以及发送诊断使用�
 不会修改已安装的 SDK，并会检查所用发送和帧校验代码段的机器指令字节保持不变。
 升级 ESP-IDF 时，需要重新核对私有接口、回调表布局、库符号和结构偏移，
 通过链接审计、空口抓包与实板入网及完整交易验证后，再更新版本和哈希限制。
+
+经典 ESP32：
+
+```powershell
+.\firmware\esp32\tools\probe.ps1 -Action build
+.\firmware\esp32\tools\probe.ps1 -Action flash -Port COM9
+```
+
+经典 ESP32 默认 4 MB Flash，通过 UART0（板载或外接 USB 转串口）连接，要求使用 ESP32-WROOM-32E；
+ESP32-WROOM-32 存在已知兼容性问题，不能用于可靠交换。本次实板端口为 COM9，
+详情见[经典 ESP32 工程说明](firmware/esp32/README.md)。
 
 ESP32-C6：
 
@@ -151,7 +166,7 @@ ESP32-S3：
 
 S3 默认 16 MB Flash、DIO、80 MHz，通过 UART0 与电脑通信。使用现有 SDK 路径；如缺少 S3 的 Xtensa 工具链，运行 `.\firmware\tools\setup.ps1` 补齐。详情见 [S3 工程说明](firmware/esp32-s3/README.md)。
 
-三种芯片的构建产物分别保存在各自工程的 `build*` 目录内。所有烧录命令中的 COM 端口均需替换为实际设备端口。
+各芯片的构建产物分别保存在各自工程的 `build*` 目录内。所有烧录命令中的 COM 端口均需替换为实际设备端口。
 
 ## 验证与移植
 

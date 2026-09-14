@@ -62,11 +62,15 @@ public partial class MainWindow : Window
         PortBox.IsEnabled = RefreshPorts.IsEnabled = state == ConnectionState.Disconnected;
         if (state == ConnectionState.Disconnected)
         {
-            foreach (var slot in OpponentSlots) slot.Set(null);
-            OpponentName.Text = "对方";
-            trainers = []; trainerSignature = ""; SyncOt.IsEnabled = false;
             if (PendingChanges) PendingText.Text = "待用队伍已保存，将用于下一次连接";
         }
+    }
+
+    private void ClearOpponentParty()
+    {
+        foreach (var slot in OpponentSlots) slot.Set(null);
+        OpponentName.Text = "对方";
+        trainers = []; trainerSignature = ""; SyncOt.IsEnabled = false;
     }
 
     private void RefreshPortList()
@@ -95,6 +99,7 @@ public partial class MainWindow : Window
             }
             LocalParty.Save(); SaveSettings();
             PendingChanges = false; PendingText.Text = ""; failed = false;
+            ClearOpponentParty();
             SetState(ConnectionState.Connecting);
             StatusText.Text = "正在打开串口";
             await bridge.StartAsync(port, LocalParty.Snapshot(), LocalParty.Selected);
@@ -151,7 +156,9 @@ public partial class MainWindow : Window
                 {
                     var received = PokemonData.Parse(Convert.FromHexString(message.GetProperty("pk3").GetString()!));
                     int index = message.GetProperty("slot").GetInt32();
-                    if (!PendingChanges && index is >= 0 and < 6) { LocalParty.Slots[index].Set(received); LocalParty.Save(); }
+                    if (index is < 0 or >= 6) throw new InvalidDataException("收到的交换槽位无效。");
+                    LocalParty.Slots[index].Set(received);
+                    LocalParty.Save();
                     StatusText.Text = $"交易完成，已收到 {received.Nickname}";
                 }
                 catch (Exception error) { ShowError(error.Message); }

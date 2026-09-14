@@ -1,5 +1,6 @@
 **/bin/
 **/obj/
+**/build*/
 .vs/
 /host/desktop/Frlg.Trade.Desktop.csproj.user
 **/__pycache__/

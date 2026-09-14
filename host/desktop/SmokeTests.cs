@@ -77,6 +77,13 @@ public static class SmokeTests
             Require(PokemonData.Parse(Convert.FromHexString(snapshot[0]!)).OriginalTrainerName == pk.OriginalTrainerName, "Connected snapshot remains unchanged");
             Require(window.PendingChanges && window.PendingText.Text.Contains("下次连接"), "Connected edits staged");
             Require(window.LocalParty.Slots.Where(s => s.Occupied).All(s => TrainerIdentity.From(s.Pokemon!) == trainer), "OT updates every local occupied slot");
+            using (var doc = JsonDocument.Parse(JsonSerializer.Serialize(new { @event = "received", slot = 1, pk3 = party[4] })))
+                window.HandleEvent(doc.RootElement);
+            Require(window.LocalParty.Slots[1].Pokemon?.Species == 41 && window.LocalParty.Slots[1].Nickname == "ZUBAT",
+                "Received trade always replaces the offered slot while edits are pending");
+            using (var saved = JsonDocument.Parse(File.ReadAllText(stateFile)))
+                Require(PokemonData.Parse(Convert.FromHexString(saved.RootElement.GetProperty("slots")[1].GetString()!)).Species == 41,
+                    "Received trade is saved while edits are pending");
             await Capture(window, output, "connected");
             window.Width = 900; window.Height = 700;
             await Capture(window, output, "compact");
@@ -84,7 +91,7 @@ public static class SmokeTests
             window.ImportFiles(window.LocalParty.Slots[5], [dropped]);
             Require(window.LocalParty.Slots[5].Occupied, "Import reaches sixth slot");
             window.SetState(ConnectionState.Disconnected);
-            Require(window.OpponentSlots.All(s => !s.Occupied) && window.ConnectButton.IsEnabled && !window.DisconnectButton.IsEnabled, "Unexpected exit resets party and buttons");
+            Require(window.OpponentSlots.All(s => s.Occupied) && window.ConnectButton.IsEnabled && !window.DisconnectButton.IsEnabled, "Disconnect preserves opponent party and resets buttons");
             var client = new BridgeClient();
             var exited = new TaskCompletionSource<int>();
             client.Exited += code => { window.HandleExit(code); exited.TrySetResult(code); };

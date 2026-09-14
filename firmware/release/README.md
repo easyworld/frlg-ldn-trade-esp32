@@ -4,11 +4,40 @@
 
 | 文件 | 芯片 | Flash | 上位机通信接口 |
 | --- | --- | --- | --- |
+| `frlg-trade-esp32-uart-4mb-full.bin` | 经典 ESP32 | 4 MB | UART0（USB 转串口） |
 | `frlg-trade-esp32c6-uart-16mb-full.bin` | ESP32-C6 | 16 MB | UART（USB 转串口） |
 | `frlg-trade-esp32c3-usb-4mb-full.bin` | ESP32-C3 | 4 MB | 原生 USB Serial/JTAG |
 | `frlg-trade-esp32s3-uart-16mb-full.bin` | ESP32-S3 | 16 MB | UART0（USB 转串口） |
 
-三款均为 DIO / 80 MHz。请按芯片、容量和接口选择，不可混用。
+四款均为 DIO / 80 MHz。请按芯片、容量和接口选择，不可混用。
+
+## 经典 ESP32
+
+`frlg-trade-esp32-uart-4mb-full.bin` 使用 4 MB Flash、DIO、80 MHz，通过 UART0（板载或外接 USB 转串口）与上位机通信。完整文件烧录地址为 `0x0`，包含启动程序、分区表和应用。构建日期为 2026-09-14，源码基线为 `41c44af`，经典 ESP32 工程来自该基线上的当前工作树。
+
+此完整固件要求使用 **ESP32-WROOM-32E**。旧款 **ESP32-WROOM-32** 存在已知实板兼容性问题，无法可靠完成交换，不受支持。
+
+### 烧录
+
+图形烧录工具中选择 ESP32，只添加这个完整 BIN 文件，地址填写 `0x0`，配置选择 DIO、80 MHz、4 MB。
+
+也可在本目录执行（将 COM9 替换为实际端口）：
+
+```powershell
+python -m esptool --chip esp32 --port COM9 --baud 460800 write-flash --flash-mode dio --flash-freq 80m --flash-size 4MB 0x0 frlg-trade-esp32-uart-4mb-full.bin
+```
+
+### 重新生成
+
+在仓库根目录执行：
+
+```powershell
+.\firmware\esp32\tools\probe.ps1 -Action build
+. .\firmware\tools\environment.ps1
+& $ProbePython -m esptool --chip esp32 merge-bin --output firmware/release/frlg-trade-esp32-uart-4mb-full.bin --flash-mode dio --flash-freq 80m --flash-size 4MB 0x1000 firmware/esp32/build/bootloader/bootloader.bin 0x8000 firmware/esp32/build/partition_table/partition-table.bin 0x10000 firmware/esp32/build/ldn_esp32_bridge.bin
+```
+
+本次已通过源码构建、完整镜像合并数据校验，并将同一构建产物烧录到 ESP32-D0WD-V3（4 MB）实板，写入后哈希校验通过。完整镜像本身未再次烧录；两种方式写入的 bootloader、分区表和应用内容相同。
 
 ## ESP32-C6
 
@@ -112,7 +141,7 @@ python -m esptool --chip esp32s3 --port COM5 --baud 460800 write-flash --flash-m
 
 ## 更新全部校验值
 
-在仓库根目录执行，保留三款固件的校验记录：
+在仓库根目录执行，保留四款固件的校验记录：
 
 ```powershell
 Get-ChildItem firmware/release -Filter '*.bin' | Sort-Object Name | ForEach-Object {

@@ -247,6 +247,18 @@ try
         selectedSlot = 0;
     }
     Check(offeredSlots.SequenceEqual([1, 0, 0]), "Multi-trade commits did not follow the selected slots");
+    var activeBarrier = new byte[14]; Bin.W16(activeBarrier, 0, 0x6600); Bin.W16(activeBarrier, 2, 0x12);
+    FeedPeer(0, activeBarrier);
+    Check(multi.Barrier.Mode == 1 && !multi.Barrier.Initiated, "Host barrier should be active before cancellation");
+    multi.OnCommand(TradeEngine.BothCancel, 0);
+    Check(multi.Barrier.Initiated, "Cancellation must join an already active host barrier");
+    FeedPeer(0, activeBarrier);
+    var returnSync = multi.Tick();
+    Check(returnSync[0] == 0x6600 && returnSync[1] == 0x13,
+        "Cancellation did not advance the active host barrier");
+    Bin.W16(activeBarrier, 2, 0x13); FeedPeer(0, activeBarrier);
+    multi.Tick();
+    Check(multi.Done, "Repeated trades did not complete the cancellation barriers");
     using var crypto = new PiaCrypto(Enumerable.Range(0, 16).Select(i => (byte)i).ToArray());
     using (var sim = new Simulator(Enumerable.Range(0, 16).Select(i => (byte)i).ToArray(),
         Bin.Hex("020000000002"), Bin.Hex("020000000001"), "169.254.1.2", "169.254.1.1", new TradeEngine(party, 1), (_, _) => { }))

@@ -88,7 +88,14 @@ public sealed class Barrier
     private int sinceHost, sinceInitiate, burstFor = -1, burst;
     public void Reset() { if (Mode == 1) { Mode = 0; Initiated = false; sinceInitiate = 0; burstFor = -1; } }
     public void Initiate()
-    { if (Mode == 1) return; Mode = 1; Initiated = true; HostCount = -1; sinceHost = sinceInitiate = 0; burstFor = -1; }
+    {
+        if (Mode == 1)
+        {
+            Initiated = true; sinceInitiate = 0; burstFor = -1;
+            return;
+        }
+        Mode = 1; Initiated = true; HostCount = -1; sinceHost = sinceInitiate = 0; burstFor = -1;
+    }
     public void Feed(int op, int count)
     {
         sinceHost = 0; int previous = HostCount; HostCount = count;

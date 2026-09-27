@@ -197,6 +197,56 @@ try
     var ni = Rfu.GameData(); foreach (var n in v.GetProperty("ni").EnumerateArray()) Equal(ni.Dequeue(), Bin.Hex(n.GetString()!), "NI fixture");
     var party = new byte[]?[] { File.ReadAllBytes(Path.Combine(root, "assets/party/mewtwo.pk3")), File.ReadAllBytes(Path.Combine(root, "assets/party/deoxys.pk3")), null, null, null, null };
     for (int i = 0; i < 2; i++) Equal(TradeEngine.ToWire(party[i]!), Bin.Hex(v.GetProperty("party")[i].GetString()!), "PK3 wire encoding fixture");
+    int selectedSlot = 1;
+    var multi = new TradeEngine(party, 1, allowMultipleTrades: true, currentSlot: () => selectedSlot) { AnimationFrames = 0 };
+    var offeredSlots = new List<int>();
+    var lockedSlots = new List<int>();
+    multi.Committed += (_, slot) => offeredSlots.Add(slot);
+    multi.OfferLocked += slot => lockedSlots.Add(slot);
+    var hostParty = Bin.Join(TradeEngine.ToWire(party[0]!), TradeEngine.ToWire(party[1]!), new byte[400]);
+    void FeedPeer(int peer, byte[] command)
+    {
+        var slots = Enumerable.Range(0, 5).Select(_ => new byte[14]).ToArray();
+        slots[peer] = command; multi.Feed(slots);
+    }
+    void CompleteBlock(int[] init)
+    {
+        Check(init[0] == 0x8800, "RFU block did not start");
+        var ackInit = new byte[14]; Bin.W16(ackInit, 0, 0x8800); Bin.W16(ackInit, 2, init[1]);
+        FeedPeer(1, ackInit);
+        for (int i = 0; i < init[1]; i++)
+        {
+            var fragment = multi.Tick();
+            Check(fragment[0] == (0x8900 | i), "RFU block fragment missing");
+            var ack = new byte[14];
+            for (int word = 0; word < 7; word++) Bin.W16(ack, word * 2, fragment[word]);
+            FeedPeer(1, ack);
+        }
+        multi.Tick();
+    }
+    void SendBlockRequest()
+    {
+        var request = new byte[14]; Bin.W16(request, 0, 0xa100); Bin.W16(request, 2, 1);
+        FeedPeer(0, request);
+        CompleteBlock(multi.Tick());
+    }
+    for (int round = 0; round < 3; round++)
+    {
+        for (int block = 0; block < 3; block++) multi.HostBlock(17, hostParty[(block * 200)..((block + 1) * 200)]);
+        multi.HostBlock(4, new byte[40]);
+        for (int block = 0; block < (round == 0 ? 4 : 3); block++) SendBlockRequest();
+        CompleteBlock(multi.Tick());
+        Check(lockedSlots.Count == round + 1 && lockedSlots[^1] == selectedSlot,
+            $"Trade offer did not follow the selected slot: round={round + 1}, state={multi.State}, locked={string.Join(',', lockedSlots)}");
+        multi.OnCommand(TradeEngine.SetMons, 0);
+        multi.OnCommand(TradeEngine.Start, 0);
+        multi.PollSendDone();
+        CompleteBlock(multi.Tick());
+        multi.OnCommand(TradeEngine.ConfirmFinish, 0);
+        Check(multi.Commits == round + 1 && !multi.Done, $"Multi-trade round {round + 1} did not commit and remain connected");
+        selectedSlot = 0;
+    }
+    Check(offeredSlots.SequenceEqual([1, 0, 0]), "Multi-trade commits did not follow the selected slots");
     using var crypto = new PiaCrypto(Enumerable.Range(0, 16).Select(i => (byte)i).ToArray());
     using (var sim = new Simulator(Enumerable.Range(0, 16).Select(i => (byte)i).ToArray(),
         Bin.Hex("020000000002"), Bin.Hex("020000000001"), "169.254.1.2", "169.254.1.1", new TradeEngine(party, 1), (_, _) => { }))

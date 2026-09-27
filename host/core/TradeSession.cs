@@ -18,15 +18,18 @@ public sealed class TradeSession(Action<object> emit)
         try { return LdnKeys.Decode(keys, Bin.Hex(fields[3]), Bin.Hex(fields[1].Replace(":", "")), int.Parse(fields[2])); }
         catch (Exception e) when (e is InvalidDataException or FormatException or Org.BouncyCastle.Crypto.InvalidCipherTextException or System.Security.Cryptography.CryptographicException) { return null; }
     }
-    public void Run(string port, byte[]?[] party, int selected, string runPath, CancellationToken cancel)
+    public void Run(string port, byte[]?[] party, int selected, string runPath, CancellationToken cancel,
+        Func<int>? currentSlot = null, Action<int?>? offerLockChanged = null)
     {
         using var timing = new SessionTiming();
-        var engine = new TradeEngine(party, selected);
+        var engine = new TradeEngine(party, selected, allowMultipleTrades: true, currentSlot: currentSlot);
         var keys = KeyFile.LoadDefault();
         Directory.CreateDirectory(runPath); emit(new { @event = "run", path = runPath });
         using var log = new StreamWriter(Path.Combine(runPath, "native.log")) { AutoFlush = true };
         void Record(string text) { log.WriteLine($"{DateTimeOffset.Now:O} {text}"); Log(text); }
         engine.Log += Record;
+        engine.OfferLocked += slot => { offerLockChanged?.Invoke(slot); emit(new { @event = "offer_locked", slot }); };
+        engine.OfferUnlocked += () => { offerLockChanged?.Invoke(null); emit(new { @event = "offer_unlocked" }); };
         engine.OpponentParty += (values, name) => emit(new { @event = "opponent_party", name, party = values.Select(v => v == null ? null : Convert.ToHexString(v)).ToArray() });
         engine.Committed += (data, slot) =>
         {
@@ -266,7 +269,10 @@ public sealed class TradeSession(Action<object> emit)
                     simulator.Tick();
                     nextTick += tickInterval;
                 }
-                if (engine.Barrier.Mode == 2 && !closeSeen) { closeSeen = true; closeAt = now + 1.5; }
+                // Mode 2 is also used by the trade save/turnaround barrier.
+                // Only treat it as room closure after the host explicitly exits
+                // or the engine has completed its cancellation handshake.
+                if (engine.Barrier.Mode == 2 && (engine.HostExiting || engine.Done) && !closeSeen) { closeSeen = true; closeAt = now + 1.5; }
                 if (engine.Done && !doneSeen) { doneSeen = true; leaveAt = now + 120; Phase("交易已结束，等待 Leader 离房"); }
                 if (now >= closeAt || now >= leaveAt) break;
                 if (now - lastReceive > 30) throw new ConnectionException("主机通信超时，连接已断开。");

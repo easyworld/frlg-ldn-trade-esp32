@@ -20,24 +20,31 @@ public sealed class TradeEngine
     public byte[]? Received { get; private set; }
     public event Action<byte[]?[], string>? OpponentParty;
     public event Action<byte[], int>? Committed;
+    public event Action<int>? OfferLocked;
+    public event Action? OfferUnlocked;
     public event Action<string>? Log;
     private readonly byte[][] party;
-    private readonly int offered;
+    private readonly bool[] available;
+    private readonly Func<int> selectedSlot;
+    private readonly bool allowMultipleTrades;
     private readonly BlockReceive[] receivers = Enumerable.Range(0, 5).Select(_ => new BlockReceive()).ToArray();
     private BlockSend? sender;
     private byte[]? pending;
     private byte[] hostParty = new byte[600];
+    private int offered;
     private int sentParty, hostBlocks, settle, hostCursor = -1, animWait = -1, reselect = -1;
-    private bool playerSent, cardSupplied, seatOver, menuComplete, ribbons, selected, confirmed, finishSent, pendingConfirm;
-    private bool leaving, cancelled, cancelAfterSend, cancelBarrier, returnBarrier, postCancel, saveBarriers, seam;
+    private bool playerSent, cardSupplied, seatOver, menuComplete, ribbons, selected, confirmed, finishSent, pendingConfirm, roundReady;
+    private bool leaving, cancelled, cancelAfterSend, cancelSent, cancelRequested, cancelBarrier, returnBarrier, postCancel, saveBarriers, seam;
     private int saveSettle, firstEmits, secondEmits, thirdEmits, fourthEmits, thirdGap, fourthGap, postSeat;
     private bool seated;
     public int AnimationFrames { get; set; } = 1935;
-    public TradeEngine(byte[]?[] data, int selectedSlot)
+    public TradeEngine(byte[]?[] data, int selectedSlot, bool allowMultipleTrades = false, Func<int>? currentSlot = null)
     {
         if (data.Length != 6 || selectedSlot is < 0 or > 5 || data[selectedSlot] == null || data.Count(p => p != null) < 2)
             throw new InvalidDataException("队伍需要至少两只宝可梦，并选择有效槽位。");
-        party = data.Select(p => p == null ? new byte[100] : ToWire(p)).ToArray(); offered = selectedSlot;
+        party = data.Select(p => p == null ? new byte[100] : ToWire(p)).ToArray();
+        available = data.Select(p => p != null).ToArray();
+        offered = selectedSlot; this.selectedSlot = currentSlot ?? (() => selectedSlot); this.allowMultipleTrades = allowMultipleTrades;
     }
     public static PK3 Parse(byte[] data)
     {
@@ -89,7 +96,7 @@ public sealed class TradeEngine
         if (type == 3) return new byte[220];
         if (type == 4) return new byte[40];
         if (HostInSeat) seatOver = true;
-        if (Commits == 0 && !playerSent) { playerSent = true; return Rfu.PlayerBlock(); }
+        if (!playerSent) { playerSent = true; return Rfu.PlayerBlock(); }
         int block = sentParty++; return block < 3 ? Bin.Join(party[block * 2], party[block * 2 + 1]) : new byte[200];
     }
     public void HostBlock(int count, byte[] data)
@@ -107,6 +114,7 @@ public sealed class TradeEngine
             var parsed = Enumerable.Range(0, 6).Select(i => new PK3(hostParty[(i * 100)..((i + 1) * 100)])).ToArray();
             foreach (var p in parsed.Where(p => p.Species != 0)) if (!p.ChecksumValid) throw new InvalidDataException("Opponent PK3 checksum failed");
             OpponentParty?.Invoke(parsed.Select(p => p.Species == 0 ? null : p.Data.ToArray()).ToArray(), HostName ?? "Switch");
+            roundReady = true;
             if (State == 0) State = 1;
         }
     }
@@ -124,15 +132,20 @@ public sealed class TradeEngine
                 if (!cancelled) { State = 4; animWait = AnimationFrames; }
                 break;
             case ConfirmFinish:
-                if (cancelled || Commits != 0) break;
+                if (cancelled || (!allowMultipleTrades && Commits != 0)) break;
                 if (finishSent) Commit(); else pendingConfirm = true;
                 break;
+            case Cancel:
+                if (allowMultipleTrades) RequestRemoteCancel();
+                break;
             case BothCancel:
-                State = 6; cancelled = true; cancelBarrier = true; Barrier.Initiate(); break;
+                State = 6; cancelled = true; cancelBarrier = true; Barrier.Initiate();
+                break;
             case PlayerCancel:
             case PartnerCancel:
-                State = 1; selected = false; reselect = 60; pending = null; cancelAfterSend = false;
-                confirmed = false; cancelled = false; hostCursor = -1; break;
+                if (allowMultipleTrades) RequestRemoteCancel();
+                else { State = 1; selected = false; reselect = 60; pending = null; cancelAfterSend = false; confirmed = false; cancelled = false; hostCursor = -1; }
+                break;
         }
     }
     public static byte[] LinkCommand(int command, int cursor = 0)
@@ -143,9 +156,21 @@ public sealed class TradeEngine
         var received = hostParty[(hostCursor * 100)..((hostCursor + 1) * 100)];
         Received = Parse(received).Data.ToArray(); party[offered] = received; Commits++;
         Committed?.Invoke(Received, offered);
-        saveBarriers = true; saveSettle = 0; leaving = true;
+        saveBarriers = true; saveSettle = 0; leaving = !allowMultipleTrades;
         sentParty = hostBlocks = settle = 0; hostParty = new byte[600]; hostCursor = -1;
+        roundReady = false;
+        playerSent = true;
         selected = ribbons = finishSent = pendingConfirm = confirmed = seam = false; animWait = reselect = -1; State = 0;
+        OfferUnlocked?.Invoke();
+    }
+    private void RequestRemoteCancel()
+    {
+        if (Done || cancelRequested || cancelSent) return;
+        cancelRequested = cancelled = leaving = true; State = 6;
+        saveBarriers = false; selected = confirmed = finishSent = pendingConfirm = false;
+        animWait = reselect = -1; hostCursor = -1;
+        if (sender != null || pending != null) cancelAfterSend = true;
+        else pending = LinkCommand(Cancel);
     }
     private void Timers()
     {
@@ -168,7 +193,21 @@ public sealed class TradeEngine
         if (sender != null)
         {
             var words = sender.Tick(receivers[1]);
-            if (sender.Done) { sender = null; if (cancelAfterSend && !Done) { cancelAfterSend = false; State = 6; leaving = true; } }
+            if (sender.Done)
+            {
+                sender = null;
+                if (cancelAfterSend && !cancelSent && !Done)
+                {
+                    cancelAfterSend = false;
+                    if (allowMultipleTrades) pending = LinkCommand(Cancel);
+                    else { State = 6; leaving = true; }
+                }
+                else if (cancelSent && !Done)
+                {
+                    State = 6; leaving = true;
+                    if (allowMultipleTrades) { cancelBarrier = true; Barrier.Initiate(); }
+                }
+            }
             return words;
         }
         if (cancelBarrier)
@@ -182,23 +221,35 @@ public sealed class TradeEngine
             returnBarrier = false; Done = postCancel = true;
         }
         if (postCancel && Barrier.Active) return Barrier.Emit() ?? Rfu.Words(0);
-        if (saveBarriers)
+        if (saveBarriers && !cancelRequested)
         {
             if (!Barrier.Active && saveSettle > 600) saveBarriers = false;
             else { if (!Barrier.Active) Barrier.Initiate(); return Barrier.Emit() ?? Rfu.Words(0); }
         }
         Timers();
         if (animWait >= 0 && !seam) { seam = true; Barrier.Initiate(); }
-        if (!selected && State == 1 && reselect < 0 && hostBlocks >= 3 && playerSent && sentParty >= 3 && (ribbons || settle >= 600) && pending == null)
+        if (!selected && State == 1 && reselect < 0 && hostBlocks >= 3 && (!allowMultipleTrades || roundReady) && playerSent && sentParty >= 3 && (ribbons || settle >= 600) && pending == null)
         {
             selected = menuComplete = true;
             if (leaving) { pending = LinkCommand(Cancel); cancelled = true; }
-            else { State = 2; pending = LinkCommand(Ready, offered); }
+            else
+            {
+                int choice = selectedSlot();
+                if (choice is < 0 or > 5 || !available[choice]) throw new InvalidDataException("本轮选择的提供槽位无效，请重新连接。");
+                offered = choice; State = 2; OfferLocked?.Invoke(offered);
+                pending = LinkCommand(Ready, offered);
+            }
         }
         if (pending != null)
         {
             var buf = pending; pending = null;
-            if (Bin.U16(buf) is Cancel or ReadyCancel) cancelAfterSend = cancelled = true;
+            if (Bin.U16(buf) is Cancel or ReadyCancel)
+            {
+                int command = Bin.U16(buf);
+                cancelSent = allowMultipleTrades && command == Cancel;
+                cancelAfterSend = !allowMultipleTrades || command == ReadyCancel;
+                cancelled = true;
+            }
             Begin(buf); return sender!.Tick(receivers[1]);
         }
         if (Established && !HostInSeat)

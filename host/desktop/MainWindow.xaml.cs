@@ -131,6 +131,12 @@ public partial class MainWindow : Window
                 SetState(ConnectionState.Connected);
                 StatusText.Text = "已连接，等待对方队伍";
                 break;
+            case "offer_locked":
+                LocalParty.Select(message.GetProperty("slot").GetInt32());
+                LocalParty.Save();
+                break;
+            case "offer_unlocked":
+                break;
             case "opponent_party":
                 if (State is ConnectionState.Disconnected or ConnectionState.Disconnecting) break;
                 var values = message.GetProperty("party").EnumerateArray().ToArray();
@@ -208,6 +214,13 @@ public partial class MainWindow : Window
     {
         if ((sender as FrameworkElement)?.Tag is not PokemonSlot slot || slot.IsOpponent) return;
         if (!slot.Occupied) { ImportFiles(slot, null); return; }
+        if (bridge.Running)
+        {
+            if (bridge.IsOfferLocked) { ShowError("本笔交易已选定宝可梦，完成后再选择下一只。"); return; }
+            if (!bridge.IsActiveSlot(slot.Index)) { ShowError("该槽位将在下次连接生效。"); return; }
+            if (!bridge.TrySelectSlot(slot.Index)) return;
+            LocalParty.Select(slot.Index); LocalParty.Save(); return;
+        }
         LocalParty.Select(slot.Index); MarkChanged();
     }
     private void Slot_DragOver(object sender, DragEventArgs e)
@@ -267,6 +280,8 @@ public partial class MainWindow : Window
     private void Clear_Click(object sender, RoutedEventArgs e)
     {
         if (MenuSlot(sender) is not { IsOpponent: false } slot) return;
+        if (bridge.Running && slot.Index == LocalParty.Selected)
+        { ShowError("连接期间不能清空当前提供槽位。"); return; }
         slot.Set(null);
         if (slot.Index == LocalParty.Selected) LocalParty.Select(LocalParty.Slots.FirstOrDefault(s => s.Occupied)?.Index ?? 0);
         MarkChanged();
